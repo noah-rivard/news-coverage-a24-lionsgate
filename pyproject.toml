@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "news-coverage-a24-lionsgate"
+version = "0.1.0"
+description = "Agent workflow to summarize and format entertainment news articles."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.54.0",
+    "openai-agents>=0.6.1",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.5.2",
+    "typer>=0.12.3",
+    "rich>=13.7.1",
+    "jsonschema>=4.23.0",
+    "fastapi>=0.115.5",
+    "uvicorn>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "flake8>=6.1.0",
+]
+
+[project.scripts]
+news-agent = "news_coverage.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]

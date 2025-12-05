@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/news-coverage/coverage-article.schema.json",
+  "title": "CoverageArticle",
+  "description": "Single news article ready for quarterly coverage. Designed for A24 and Lionsgate; extensible to other buyers.",
+  "type": "object",
+  "required": [
+    "company",
+    "quarter",
+    "section",
+    "title",
+    "source",
+    "url",
+    "published_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable identifier (UUID v4 recommended)."
+    },
+    "company": {
+      "type": "string",
+      "enum": ["A24", "Lionsgate", "Unknown"],
+      "description": "Company/buyer the article is about."
+    },
+    "company_match_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "0-1 confidence score from the classifier."
+    },
+    "company_raw": {
+      "type": "string",
+      "description": "Raw string matched in the article (e.g., an imprint or alias)."
+    },
+    "quarter": {
+      "type": "string",
+      "pattern": "^\\d{4} Q[1-4]$",
+      "description": "Calendar quarter label, e.g., '2025 Q1'."
+    },
+    "quarter_inferred_from": {
+      "type": "string",
+      "enum": ["published_at", "title", "user_override"],
+      "description": "What signal produced the quarter label."
+    },
+    "section": {
+      "type": "string",
+      "enum": [
+        "Highlights",
+        "Org",
+        "Content / Deals / Distribution",
+        "Strategy & Miscellaneous News",
+        "Investor Relations",
+        "M&A"
+      ],
+      "description": "Top-level section matching the historical coverage outline."
+    },
+    "subheading": {
+      "type": "string",
+      "enum": [
+        "General News & Strategy",
+        "Exec Changes",
+        "Development",
+        "Greenlights",
+        "Pickups",
+        "Dating",
+        "Renewals",
+        "Cancellations",
+        "Film",
+        "TV",
+        "International",
+        "Sports",
+        "Podcasts",
+        "Strategy",
+        "Quarterly Earnings",
+        "Company Materials",
+        "News Coverage",
+        "None"
+      ],
+      "default": "General News & Strategy",
+      "description": "Subsection used inside a section; choose 'None' if not applicable."
+    },
+    "title": {
+      "type": "string",
+      "description": "Article headline."
+    },
+    "dek": {
+      "type": "string",
+      "description": "Optional subheadline or deck."
+    },
+    "source": {
+      "type": "string",
+      "description": "Publisher name (e.g., Deadline, Variety)."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical article URL."
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date",
+      "description": "Publication date in ISO-8601 (YYYY-MM-DD)."
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the extension ingested the article."
+    },
+    "byline": {
+      "type": "string",
+      "description": "Author line as printed."
+    },
+    "body": {
+      "type": "string",
+      "description": "Full text extracted from the page (plain text)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short summary produced by the workflow or user."
+    },
+    "bullet_points": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional bulletized summary items."
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Keywords (people, projects, formats)."
+    },
+    "people": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Named individuals mentioned."
+    },
+    "works": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Titles of shows/films/projects referenced."
+    },
+    "geography": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Countries/regions/cities mentioned."
+    },
+    "language": {
+      "type": "string",
+      "default": "en",
+      "description": "ISO language code of the article."
+    },
+    "is_highlight_candidate": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, the item should be considered for the Highlights section."
+    },
+    "importance": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "default": "medium",
+      "description": "Relative weight for ordering inside a section."
+    },
+    "classification_notes": {
+      "type": "string",
+      "description": "Free-text notes about how classification was determined."
+    },
+    "ingest_source": {
+      "type": "string",
+      "enum": ["chrome_extension", "feedly", "manual_upload", "test_fixture"],
+      "default": "chrome_extension",
+      "description": "Origin of the record."
+    },
+    "ingest_version": {
+      "type": "string",
+      "description": "Version of the extension or tool that produced the payload."
+    },
+    "duplicate_of": {
+      "type": "string",
+      "description": "Existing article ID or URL this duplicates, if detected."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "b7c2c1c0-6e3b-4c9c-8f91-6a6fd7c6d5f9",
+      "company": "A24",
+      "company_match_confidence": 0.88,
+      "company_raw": "A24",
+      "quarter": "2025 Q1",
+      "quarter_inferred_from": "published_at",
+      "section": "Content / Deals / Distribution",
+      "subheading": "General News & Strategy",
+      "title": "A24 expands theatrical slate with new genre label",
+      "dek": "Indie powerhouse eyes horror-first pipeline",
+      "source": "Variety",
+      "url": "https://www.variety.com/a24-expands-genre-label",
+      "published_at": "2025-01-15",
+      "captured_at": "2025-12-04T23:22:00Z",
+      "byline": "Jane Reporter",
+      "summary": "A24 is launching a horror-focused label with three greenlit projects to bolster its 2025 slate while keeping budgets under $15M.",
+      "tags": ["horror", "slate", "label"],
+      "people": ["Daniel Katz"],
+      "works": ["New Horror Project"],
+      "geography": ["US"],
+      "language": "en",
+      "is_highlight_candidate": true,
+      "importance": "high",
+      "classification_notes": "Matched company by exact name; section chosen via keyword 'slate' + 'label'.",
+      "ingest_source": "chrome_extension",
+      "ingest_version": "0.1.0"
+    }
+  ]
+}
