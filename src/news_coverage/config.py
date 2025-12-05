@@ -10,13 +10,25 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
-    model: str = Field(
-        "gpt-4o-mini-2024-07-18", description="Default Responses model."
+    manager_model: str = Field(
+        "gpt-5.1", description="Coordinator/manager model for tool orchestration."
+    )
+    summarizer_model: str = Field(
+        "gpt-5-mini", description="Specialist summarizer/formatter model."
+    )
+    classifier_model: str = Field(
+        "ft:gpt-4.1-2025-04-14:personal:news-categorizer:BY2DIiT5",
+        description="Fine-tuned classifier that returns category paths.",
     )
     max_tokens: int = Field(
         600, description="Max tokens for each summary response."
     )
     temperature: float = Field(0.3, description="Generation temperature.")
+    ingest_data_dir: str | None = Field(
+        None,
+        alias="INGEST_DATA_DIR",
+        description="Optional override for ingest storage root; defaults to data/ingest.",
+    )
 
 
 def get_settings() -> Settings:

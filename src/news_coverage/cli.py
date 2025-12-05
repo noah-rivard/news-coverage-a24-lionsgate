@@ -1,75 +1,101 @@
 """Command-line entry points for the news coverage workflow."""
 
 import json
+import dataclasses
+from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 import typer
 from rich import print as rprint
-from rich.table import Table
 
-from .config import get_settings
 from .models import Article
-from .workflow import build_client, summarize_articles
+from .workflow import ingest_article, process_article
 
 app = typer.Typer(
-    help="Summarize entertainment news articles with OpenAI Agents."
+    help="Run the coordinator pipeline for a single entertainment news article."
 )
 
 
-def _load_articles(path: Optional[Path]) -> list[Article]:
+def _load_article(path: Optional[Path]) -> Article:
     if path is None:
-        # Provide stub data for quick demos
-        return [
-            Article(
-                title="Example headline",
-                source="SampleWire",
-                url="https://example.com/story",
-                content=(
-                    "A24 and Lionsgate announced a new partnership for distribution "
-                    "and streaming rights."
-                ),
-            )
-        ]
+        raise typer.BadParameter("Provide a JSON file containing exactly one article.")
     data = json.loads(path.read_text(encoding="utf-8"))
-    return [Article(**item) for item in data]
+    if isinstance(data, list):
+        if len(data) != 1:
+            raise typer.BadParameter("The JSON file must contain exactly one article.")
+        data = data[0]
+    return Article(**data)
+
+
+def _to_plain(value: Any) -> Any:
+    """
+    Convert dataclasses, Paths, and date-like objects into JSON-serializable primitives.
+    Sets are returned as lists to avoid JSON serialization errors.
+    """
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if dataclasses.is_dataclass(value):
+        return _to_plain(dataclasses.asdict(value))
+    if isinstance(value, dict):
+        return {k: _to_plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_plain(item) for item in value]
+    return value
+
+
+def _write_output(out_path: Path, markdown: str, json_payload: dict) -> None:
+    suffix = out_path.suffix.lower()
+    if suffix == ".json":
+        out_path.write_text(
+            json.dumps(json_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    else:
+        out_path.write_text(markdown, encoding="utf-8")
 
 
 @app.command()
 def run(
-    path: Optional[Path] = typer.Argument(
-        None, help="Path to JSON list of articles."
-    )
+    path: Optional[Path] = typer.Argument(None, help="Path to a JSON article payload."),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Optional path to write output (.md or .json). Defaults to stdout (Markdown).",
+    ),
 ):
-    """Summarize articles from a JSON file or built-in sample."""
-    settings = get_settings()
-    articles = _load_articles(path)
+    """Run one article through classify -> summarize -> format -> ingest."""
+    article = _load_article(path)
+    debug_root = Path(__file__).resolve().parents[2] / "data" / "samples" / "debug"
+    is_debug_fixture = False
+    if path:
+        try:
+            is_debug_fixture = path.resolve().is_relative_to(debug_root)
+        except AttributeError:  # python <3.9 fallback
+            is_debug_fixture = str(debug_root) in str(path.resolve())
 
-    if settings.openai_api_key:
-        client = build_client(settings.openai_api_key)
-    else:
-        client = None
+    def ingest_wrapper(a, cls, summary):
+        return ingest_article(a, cls, summary, skip_duplicate=is_debug_fixture)
+
+    result = process_article(article, ingest_fn=ingest_wrapper)
+
+    if result.ingest.duplicate_of:
         rprint(
-            "[yellow]OPENAI_API_KEY not set; using offline fallback summaries.[/yellow]"
+            "[yellow]Duplicate detected; matches "
+            f"{result.ingest.duplicate_of}. Stored path: "
+            f"{result.ingest.stored_path}[/yellow]"
         )
+    else:
+        rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
 
-    bundle = summarize_articles(articles, client=client)
-
-    table = Table(title="Article Summaries")
-    table.add_column("Title")
-    table.add_column("Source")
-    table.add_column("Key Points")
-    table.add_column("Takeaway")
-
-    for summary in bundle.articles:
-        table.add_row(
-            summary.title,
-            summary.source,
-            "\n".join(summary.key_points),
-            summary.takeaway,
-        )
-
-    rprint(table)
+    if out:
+        _write_output(out, result.markdown, _to_plain(result))
+        rprint(f"[cyan]Wrote output to {out}[/cyan]")
+    else:
+        rprint(result.markdown)
 
 
 def main():
