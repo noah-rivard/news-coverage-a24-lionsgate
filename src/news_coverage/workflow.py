@@ -457,7 +457,9 @@ def _route_prompt_and_formatter(
 
     settings = get_settings()
     floor = confidence_floor if confidence_floor is not None else settings.routing_confidence_floor
-    if classification.confidence is None or classification.confidence < floor:
+    # If the classifier does not return a confidence score, assume it is confident
+    # enough to use the routed prompt instead of falling back to general news.
+    if classification.confidence is not None and classification.confidence < floor:
         return DEFAULT_PROMPT, FORMATTERS[DEFAULT_FORMATTER]
 
     category_lower = classification.category.lower()

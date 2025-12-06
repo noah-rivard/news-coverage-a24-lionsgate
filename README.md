@@ -20,6 +20,8 @@ python -m news_coverage.cli run path/to/article.json
 
 Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout.
 
+By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long.
+
 Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` (ISO datetime). Example:
 
 ```

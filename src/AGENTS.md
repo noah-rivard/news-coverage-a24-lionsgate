@@ -13,6 +13,8 @@ Gotchas and expectations:
 
 Recent changes:
 - Summarizer requests skip the `temperature` parameter when `SUMMARIZER_MODEL` is `gpt-5-mini` (model rejects it).
+- Default summary token budget raised to 1,200 (`MAX_TOKENS` env var) to prevent truncated Responses API outputs on longer articles.
+- Classifier confidence is now only used to trigger the general-news fallback when present and below the floor; missing confidence no longer forces the fallback prompt.
 - Prompt templates reside in `src/prompts/`; keep `workflow.PROMPTS_DIR` aligned if relocating.
 - Batch summarization helper `_extract_summary_chunks`/`summarize_articles_batch` now fails fast when the model does not emit one summary per article, preventing silent data loss.
 - CLI runs skip duplicate checks automatically for fixtures under `data/samples/debug/`; `ingest_article` also accepts `skip_duplicate=True` when you need to bypass deduping in controlled scenarios.

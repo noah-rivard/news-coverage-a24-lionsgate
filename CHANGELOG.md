@@ -21,9 +21,12 @@ All notable changes to this project will be documented in this file. This projec
 - Docs component guide (`docs/AGENTS.md`) to keep documentation updates concise and aligned with code behavior.
 - Component guide for the core workflow/services (`src/news_coverage/AGENTS.md`) noting how injected tools can run offline.
 - Debug fixture set of three Variety articles under `data/samples/debug/` plus a `data/AGENTS.md` guide for managing fixtures.
+- Sample output markdown for the three debug fixtures (`docs/sample_outputs.md`) generated with the latest pipeline defaults.
 
 ### Changed
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
+- Default summary token limit increased to 1,200 (`MAX_TOKENS`) to reduce truncated Responses API outputs on longer articles; README and component guides note the new default.
+- Prompt routing now treats missing classifier confidence as sufficiently confident, so specialized prompts (e.g., content formatter) are used unless a low confidence score is explicitly returned.
 - Clarified in the Agents SDK quick reference that runs are stateless and handled one article at a time.
 - `process_article` only constructs an OpenAI client when default tools are used; injected classifier/summarizer pairs (or a provided client) no longer require `OPENAI_API_KEY`, enabling offline tests. README and component guides now reflect this behavior.
 - Prompt templates relocated under `src/prompts/` to align with `workflow.PROMPTS_DIR`.

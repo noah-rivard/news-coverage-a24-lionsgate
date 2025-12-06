@@ -21,7 +21,10 @@ class Settings(BaseSettings):
         description="Fine-tuned classifier that returns category paths.",
     )
     max_tokens: int = Field(
-        600, description="Max tokens for each summary response."
+        1200,
+        description=(
+            "Max tokens for each summary response; raise if long articles are truncating."
+        ),
     )
     temperature: float = Field(0.3, description="Generation temperature.")
     routing_confidence_floor: float = Field(
