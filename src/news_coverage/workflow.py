@@ -181,28 +181,6 @@ def _load_prompt_file(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _select_prompt(category_path: str) -> str:
-    lower = category_path.lower()
-    if "exec changes" in lower:
-        return "exec_changes.txt"
-    if "interview" in lower:
-        return "interview.txt"
-    if "strategy" in lower or "commentary" in lower:
-        return "commentary.txt"
-    if any(
-        key in lower
-        for key in (
-            "greenlights",
-            "development",
-            "renewals",
-            "cancellations",
-            "pickups",
-        )
-    ):
-        return "content_formatter.txt"
-    return "general_news.txt"
-
-
 def _split_bullets(text: str) -> List[str]:
     bullets: List[str] = []
     for line in text.splitlines():
@@ -329,7 +307,7 @@ def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> Sum
 
 def summarize_articles_batch(
     articles: List[Article],
-    prompt_name: str,
+    prompt_names: List[str] | str,
     client: OpenAI,
 ) -> List[SummaryResult]:
     """
@@ -344,20 +322,34 @@ def summarize_articles_batch(
         return []
 
     settings = get_settings()
-    prompt_text = _load_prompt_file(prompt_name)
+    if isinstance(prompt_names, str):
+        prompt_list = [prompt_names] * len(articles)
+    else:
+        prompt_list = list(prompt_names)
+
+    if len(prompt_list) != len(articles):
+        raise ValueError("prompt_names must match number of articles.")
+
+    prompt_texts = [_load_prompt_file(name) for name in prompt_list]
+    system_prompt = (
+        "You will receive multiple articles. Each article includes its own "
+        "instructions. For every article, follow the provided instructions to "
+        "produce bullet points, and label each block as 'Article <n>:'."
+    )
 
     user_sections = []
     for idx, article in enumerate(articles, start=1):
         published = article.published_at.isoformat() if article.published_at else "unknown"
         user_sections.append(
-            f"Article {idx}\nTitle: {article.title}\nSource: {article.source}\n"
+            f"Article {idx}\nInstructions:\n{prompt_texts[idx - 1]}\n\n"
+            f"Title: {article.title}\nSource: {article.source}\n"
             f"Published: {published}\n\n{article.content}"
         )
 
     request_kwargs = {
         "model": settings.summarizer_model,
         "input": [
-            {"role": "system", "content": prompt_text},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n\n".join(user_sections)},
         ],
         "max_output_tokens": settings.max_tokens * max(1, len(articles)),
@@ -423,6 +415,73 @@ FormatterFn = Callable[[Article, SummaryResult], str]
 IngestFn = Callable[[Article, ClassificationResult, SummaryResult], IngestResult]
 
 
+# Routing rules are applied in order; the first match wins.
+@dataclass(frozen=True)
+class RoutingRule:
+    name: str
+    match_any: tuple[str, ...]
+    prompt: str
+    formatter: str = "markdown"
+
+
+DEFAULT_PROMPT = "general_news.txt"
+DEFAULT_FORMATTER = "markdown"
+
+# Maps formatter name to callable to keep the routing table declarative.
+FORMATTERS: dict[str, FormatterFn] = {"markdown": format_markdown}
+
+
+ROUTING_RULES: tuple[RoutingRule, ...] = (
+    RoutingRule("exec_changes", ("exec changes",), "exec_changes.txt"),
+    RoutingRule("interview", ("interview",), "interview.txt"),
+    RoutingRule("commentary", ("strategy", "commentary"), "commentary.txt"),
+    RoutingRule(
+        "content_formatter",
+        ("greenlights", "development", "renewals", "cancellations", "pickups"),
+        "content_formatter.txt",
+    ),
+)
+
+
+def _route_prompt_and_formatter(
+    classification: ClassificationResult,
+    *,
+    confidence_floor: float | None = None,
+) -> tuple[str, FormatterFn]:
+    """
+    Choose the prompt and formatter based on classifier output.
+
+    Falls back to the general-news prompt when confidence is below the configured
+    floor (or missing) to avoid misrouting.
+    """
+
+    settings = get_settings()
+    floor = confidence_floor if confidence_floor is not None else settings.routing_confidence_floor
+    if classification.confidence is None or classification.confidence < floor:
+        return DEFAULT_PROMPT, FORMATTERS[DEFAULT_FORMATTER]
+
+    category_lower = classification.category.lower()
+    for rule in ROUTING_RULES:
+        if any(token in category_lower for token in rule.match_any):
+            formatter_fn = FORMATTERS.get(rule.formatter, FORMATTERS[DEFAULT_FORMATTER])
+            return rule.prompt, formatter_fn
+
+    return DEFAULT_PROMPT, FORMATTERS[DEFAULT_FORMATTER]
+
+
+def _route_prompts_for_batch(
+    classifications: List[ClassificationResult],
+    *,
+    confidence_floor: float | None = None,
+) -> List[str]:
+    """Return a list of prompt names applying the same routing logic per article."""
+    prompts: List[str] = []
+    for cls in classifications:
+        prompt, _ = _route_prompt_and_formatter(cls, confidence_floor=confidence_floor)
+        prompts.append(prompt)
+    return prompts
+
+
 def process_article(
     article: Article,
     client: Optional[OpenAI] = None,
@@ -440,7 +499,7 @@ def process_article(
     settings = get_settings()
     classifier_fn = classifier_fn or classify_article
     summarizer_fn = summarizer_fn or summarize_article
-    formatter_fn = formatter_fn or format_markdown
+    formatter_fn = formatter_fn
     ingest_fn = ingest_fn or ingest_article
 
     needs_openai_client = client is None and (
@@ -451,9 +510,10 @@ def process_article(
         client = build_client(api_key)
 
     classification = classifier_fn(article, client)
-    prompt_name = _select_prompt(classification.category)
+    prompt_name, routed_formatter = _route_prompt_and_formatter(classification)
+    active_formatter = formatter_fn or routed_formatter
     summary = summarizer_fn(article, prompt_name, client)
-    markdown = formatter_fn(article, summary)
+    markdown = active_formatter(article, summary)
     ingest_result = ingest_fn(article, classification, summary)
 
     return PipelineResult(

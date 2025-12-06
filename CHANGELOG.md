@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file. This projec
 - Prompt templates relocated under `src/prompts/` to align with `workflow.PROMPTS_DIR`.
 - README includes a quick-start note on the debug fixture files for repeatable testing.
 - CLI skips duplicate checks when running fixtures under `data/samples/debug/`, and `ingest_article` now supports an explicit `skip_duplicate` flag (covered by tests).
+- Debug fixture content now uses the full Dec 5, 2025 Variety article bodies so local runs reflect real-world ingest text; README and `data/AGENTS.md` note the change and its internal-only intent.
+- Coordinator prompt/formatter routing is now a declarative table with a confidence floor fallback to `general_news.txt`; batch summarization accepts one prompt per article while preserving 1:1 chunk validation. README and component guides capture the new behavior.
 
 ### Fixed
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.

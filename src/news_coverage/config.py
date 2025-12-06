@@ -24,6 +24,13 @@ class Settings(BaseSettings):
         600, description="Max tokens for each summary response."
     )
     temperature: float = Field(0.3, description="Generation temperature.")
+    routing_confidence_floor: float = Field(
+        0.5,
+        description=(
+            "Minimum classifier confidence to use a specialized prompt. "
+            "Below this, the coordinator defaults to general_news."
+        ),
+    )
     ingest_data_dir: str | None = Field(
         None,
         alias="INGEST_DATA_DIR",

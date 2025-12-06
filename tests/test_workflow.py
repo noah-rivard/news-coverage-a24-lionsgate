@@ -122,7 +122,7 @@ def test_summarize_articles_batch_raises_on_missing_chunks():
     client = _fake_client("Only one block")
 
     with pytest.raises(ValueError):
-        summarize_articles_batch(articles, "general_news.txt", client)
+        summarize_articles_batch(articles, ["general_news.txt", "general_news.txt"], client)
 
 
 def test_summarize_articles_batch_preserves_all_articles():
@@ -133,8 +133,65 @@ def test_summarize_articles_batch_preserves_all_articles():
     text = "Article 1:\n- first\n\nArticle 2:\n- second"
     client = _fake_client(text)
 
-    summaries = summarize_articles_batch(articles, "general_news.txt", client)
+    summaries = summarize_articles_batch(articles, ["general_news.txt", "general_news.txt"], client)
 
     assert len(summaries) == 2
     assert summaries[0].bullets == ["first"]
     assert summaries[1].bullets == ["second"]
+
+
+def test_summarize_articles_batch_allows_different_prompts(monkeypatch):
+    from news_coverage import workflow
+
+    articles = [
+        Article(title="One", source="Src", url="https://a.com", content="A"),
+        Article(title="Two", source="Src", url="https://b.com", content="B"),
+    ]
+    text = "Article 1:\n- first\n\nArticle 2:\n- second"
+    client = _fake_client(text)
+    loaded = []
+
+    def _fake_loader(name):
+        loaded.append(name)
+        return f"prompt {name}"
+
+    monkeypatch.setattr(workflow, "_load_prompt_file", _fake_loader)
+
+    summarize_articles_batch(articles, ["exec_changes.txt", "general_news.txt"], client)
+
+    assert loaded == ["exec_changes.txt", "general_news.txt"]
+
+
+def test_routing_falls_back_on_low_confidence():
+    from news_coverage import workflow
+
+    cls = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> Development",
+        section="Content / Deals / Distribution",
+        subheading="Development",
+        confidence=0.2,
+        company="A24",
+        quarter="2025 Q1",
+    )
+
+    prompt, formatter = workflow._route_prompt_and_formatter(cls, confidence_floor=0.5)
+
+    assert prompt == "general_news.txt"
+    assert formatter is format_markdown
+
+
+def test_routing_uses_specialized_prompt_when_confident():
+    from news_coverage import workflow
+
+    cls = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> Greenlights",
+        section="Content / Deals / Distribution",
+        subheading="Greenlights",
+        confidence=0.9,
+        company="A24",
+        quarter="2025 Q1",
+    )
+
+    prompt, _ = workflow._route_prompt_and_formatter(cls, confidence_floor=0.5)
+
+    assert prompt == "content_formatter.txt"

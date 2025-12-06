@@ -34,7 +34,7 @@ Payload format: one JSON object (not a list) with `title`, `source`, `url`, `con
 
 ## Debug Fixtures
 
-- Reuse the three sample Variety articles in `data/samples/debug/` when you need a quick, repeatable input. Each file is a single JSON object so it works directly with the CLI. Example:
+- Reuse the three sample Variety articles in `data/samples/debug/` when you need a quick, repeatable input. Each file now contains the full article body text from Dec. 5, 2025 Variety stories so runs mirror real ingest conditions. Each file is a single JSON object so it works directly with the CLI. Example:
 
 ```
 python -m news_coverage.cli run data/samples/debug/variety_wga_netflix_warner_merger.json --out scratch.md
@@ -48,7 +48,8 @@ python -m news_coverage.cli run data/samples/debug/variety_wga_netflix_warner_me
 - One coordinator (manager model) stays in control and calls specialist helpers as tools: classify (fine-tuned), summarize, format (Markdown), ingest (schema + JSONL storage).
 - Each run handles a single article end-to-end (stateless); default tools need an API key, but you can inject classifier/summarizer implementations (or a prepared `OpenAI` client) to run offline for tests.
 - Duplicate URLs return a 409-style message and do not write a new record.
-- Batch summarization helper (summarize_articles_batch) fails fast if the model response does not include one summary per article, so no stories disappear silently.
+- Prompt routing now uses a declarative table (category substrings -> prompt + formatter). If classifier confidence is below `ROUTING_CONFIDENCE_FLOOR` (default 0.5), the coordinator defaults to `general_news.txt` to avoid misrouting.
+- Batch summarization helper (`summarize_articles_batch`) accepts one prompt per article and still fails fast if the model response does not include one summary per article, so no stories disappear silently.
 - A reviewer/quality-check agent is planned later to flag tone or accuracy issues (see `ROADMAP.md`).
 
 ## Project Structure
