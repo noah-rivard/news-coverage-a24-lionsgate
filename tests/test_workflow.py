@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from news_coverage.models import Article
 from news_coverage.workflow import (
@@ -50,6 +52,31 @@ def test_process_article_uses_injected_tools(tmp_path):
     assert "Point one" in result.markdown
     assert result.classification.company == "A24"
     assert result.ingest.duplicate_of is None
+
+
+def test_format_markdown_outputs_title_category_and_date_link():
+    article = Article(
+        title="Sample Story",
+        source="Demo",
+        url="https://example.com/story",
+        content="A24 and Lionsgate expand their partnership.",
+        published_at=datetime(2025, 12, 5),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> Development",
+        section="Content / Deals / Distribution",
+        subheading="Development",
+        confidence=0.9,
+        company="A24",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(bullets=["Key takeaway sentence."])
+
+    markdown = format_markdown(article, classification, summary)
+
+    assert "Title: Sample Story" in markdown
+    assert "Category: Content -> Deals -> Distribution -> TV -> Development" in markdown
+    assert "Content: Key takeaway sentence. ([12/5](https://example.com/story))" in markdown
 
 
 def test_parse_category_normalizes_ir_conference(monkeypatch):

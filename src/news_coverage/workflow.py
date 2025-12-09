@@ -113,6 +113,35 @@ def _normalize_highlights(section: str) -> str:
     return section
 
 
+def _format_category_display(category_path: str) -> str:
+    """
+    Render the classifier category path using arrows and friendly splits.
+
+    Examples:
+    - "Content, Deals & Distribution -> TV -> Development"
+      becomes "Content -> Deals -> Distribution -> TV -> Development"
+    - Unknown or empty paths fall back to "General News & Strategy".
+    """
+    if not category_path:
+        return "General News & Strategy"
+
+    raw_parts = [part.strip() for part in category_path.split("->")]
+    parts: list[str] = []
+    for idx, part in enumerate(raw_parts):
+        if idx == 0 and part.startswith("Content, Deals & Distribution"):
+            parts.extend(["Content", "Deals", "Distribution"])
+            continue
+        if part == "Deals & Distribution":
+            parts.extend(["Deals", "Distribution"])
+            continue
+        slash_parts = [p.strip() for p in part.split("/") if p.strip()]
+        if len(slash_parts) > 1:
+            parts.extend(slash_parts)
+        else:
+            parts.append(part)
+    return " -> ".join(parts)
+
+
 def _parse_category_path(path: str) -> tuple[str, str | None]:
     """
     Map classifier path to schema section/subheading.
@@ -363,10 +392,26 @@ def summarize_articles_batch(
     return [SummaryResult(bullets=_split_bullets(chunk)) for chunk in chunks]
 
 
-def format_markdown(article: Article, summary: SummaryResult) -> str:
-    lines = [f"**{article.title}** ({article.source})"]
-    for bullet in summary.bullets:
-        lines.append(f"- {bullet}")
+def _format_date_for_display(dt: date) -> str:
+    """Return M/D (no leading zeros) for display alongside coverage links."""
+    return f"{dt.month}/{dt.day}"
+
+
+def format_markdown(
+    article: Article, classification: ClassificationResult, summary: SummaryResult
+) -> str:
+    """Render delivery-friendly markdown with Title/Category/Content lines."""
+    category_display = _format_category_display(classification.category)
+    date_value = article.published_at.date() if article.published_at else date.today()
+    date_text = _format_date_for_display(date_value)
+    date_link = f"[{date_text}]({article.url})"
+    content_summary = summary.bullets[0] if summary.bullets else ""
+
+    lines = [
+        f"Title: {article.title}",
+        f"Category: {category_display}",
+        f"Content: {content_summary} ({date_link})",
+    ]
     return "\n".join(lines)
 
 
@@ -411,7 +456,7 @@ def ingest_article(
 
 ClassifierFn = Callable[[Article, OpenAI], ClassificationResult]
 SummarizerFn = Callable[[Article, str, OpenAI], SummaryResult]
-FormatterFn = Callable[[Article, SummaryResult], str]
+FormatterFn = Callable[[Article, ClassificationResult, SummaryResult], str]
 IngestFn = Callable[[Article, ClassificationResult, SummaryResult], IngestResult]
 
 
@@ -515,7 +560,7 @@ def process_article(
     prompt_name, routed_formatter = _route_prompt_and_formatter(classification)
     active_formatter = formatter_fn or routed_formatter
     summary = summarizer_fn(article, prompt_name, client)
-    markdown = active_formatter(article, summary)
+    markdown = active_formatter(article, classification, summary)
     ingest_result = ingest_fn(article, classification, summary)
 
     return PipelineResult(

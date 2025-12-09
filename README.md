@@ -45,6 +45,13 @@ python -m news_coverage.cli run data/samples/debug/variety_wga_netflix_warner_me
 - The set covers the Netflix-Warner Bros. merger story, an A24/Peacock series announcement, and a column on what a Netflix-owned Warner Bros. would mean for theaters.
 - Duplicate checks are automatically skipped for files under `data/samples/debug/` so you can rerun them without 409-style messages.
 
+## Output Format
+
+Markdown output is delivery-ready and follows three lines:
+- `Title: <headline>`
+- `Category: <classifier path with arrows>`
+- `Content: <leading summary sentence> ([M/D](article_url))` — the date (month/day) is the hyperlink to the article.
+
 ## Workflow Pattern (current decision)
 
 - One coordinator (manager model) stays in control and calls specialist helpers as tools: classify (fine-tuned), summarize, format (Markdown), ingest (schema + JSONL storage).
@@ -70,6 +77,7 @@ python -m news_coverage.cli run data/samples/debug/variety_wga_netflix_warner_me
 
 - Agents SDK quick reference: `docs/agents_sdk_quickref.md` (links to the authoritative OpenAI docs and notes the patterns we use here).
 - Docs guidelines for contributors: `docs/AGENTS.md`.
+- Debug fixture sample outputs (Title/Category/Content format): `docs/sample_outputs.md`.
 
 ## Contributing Guidelines for Agents
 

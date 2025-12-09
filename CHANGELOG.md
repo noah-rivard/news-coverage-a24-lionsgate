@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file. This projec
 - CLI skips duplicate checks when running fixtures under `data/samples/debug/`, and `ingest_article` now supports an explicit `skip_duplicate` flag (covered by tests).
 - Debug fixture content now uses the full Dec 5, 2025 Variety article bodies so local runs reflect real-world ingest text; README and `data/AGENTS.md` note the change and its internal-only intent.
 - Coordinator prompt/formatter routing is now a declarative table with a confidence floor fallback to `general_news.txt`; batch summarization accepts one prompt per article while preserving 1:1 chunk validation. README and component guides capture the new behavior.
+- Markdown formatter now emits delivery-ready `Title` / `Category` / `Content` lines and appends the article date (M/D) as the hyperlink to the source URL; docs and sample outputs reflect the format.
+- Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
