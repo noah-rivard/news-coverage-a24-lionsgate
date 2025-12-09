@@ -11,6 +11,7 @@ from rich import print as rprint
 
 from .models import Article
 from .workflow import ingest_article, process_article
+from .agent_runner import run_with_agent
 
 app = typer.Typer(
     help="Run the coordinator pipeline for a single entertainment news article."
@@ -66,6 +67,13 @@ def run(
         "-o",
         help="Optional path to write output (.md or .json). Defaults to stdout (Markdown).",
     ),
+    mode: str = typer.Option(
+        "agent",
+        "--mode",
+        "-m",
+        help="Pipeline mode: 'agent' (Agents SDK manager) or 'direct' (legacy).",
+        case_sensitive=False,
+    ),
 ):
     """Run one article through classify -> summarize -> format -> ingest."""
     article = _load_article(path)
@@ -80,7 +88,14 @@ def run(
     def ingest_wrapper(a, cls, summary):
         return ingest_article(a, cls, summary, skip_duplicate=is_debug_fixture)
 
-    result = process_article(article, ingest_fn=ingest_wrapper)
+    mode_normalized = mode.lower()
+    if mode_normalized not in {"agent", "direct"}:
+        raise typer.BadParameter("mode must be 'agent' or 'direct'.")
+
+    if mode_normalized == "agent":
+        result = run_with_agent(article, skip_duplicate=is_debug_fixture)
+    else:
+        result = process_article(article, ingest_fn=ingest_wrapper)
 
     if result.ingest.duplicate_of:
         rprint(

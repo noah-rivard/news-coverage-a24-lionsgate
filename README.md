@@ -15,10 +15,19 @@ python -m pip install -e ".[dev]"
 3) Run the CLI with a single-article JSON payload:
 
 ```
-python -m news_coverage.cli run path/to/article.json
+python -m news_coverage.cli path/to/article.json
 ```
 
 Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout.
+
+The CLI defaults to the manager agent path (OpenAI Agents SDK). Keep the legacy direct pipeline with `--mode direct`. Examples:
+
+```
+python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json --mode agent
+python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json --mode direct
+```
+
+Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summarizer. The agent path always needs the key because it builds the manager model.
 
 By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long.
 

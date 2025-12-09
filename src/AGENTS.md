@@ -12,6 +12,7 @@ Gotchas and expectations:
 - Run `pytest` and `flake8` after modifications in this area; tests should not require internet access.
 
 Recent changes:
+- Manager-agent path added in `agent_runner.py`; CLI defaults to `--mode agent` with a `--mode direct` fallback to the previous hand-wired pipeline.
 - Summarizer requests skip the `temperature` parameter when `SUMMARIZER_MODEL` is `gpt-5-mini` (model rejects it).
 - Default summary token budget raised to 1,200 (`MAX_TOKENS` env var) to prevent truncated Responses API outputs on longer articles.
 - Classifier confidence is now only used to trigger the general-news fallback when present and below the floor; missing confidence no longer forces the fallback prompt.

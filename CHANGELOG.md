@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. This projec
 ## [Unreleased]
 
 ### Added
+- Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - ROADMAP outlining the agent-as-tool workflow decisions, sequential processing, and future reviewer agent.
 - ExecPlan for building the Python OpenAI Agents workflow (`.agent/in_progress/execplan-news-agent.md`).
 - Project scaffolding with `pyproject.toml`, package source under `src/news_coverage/`, and component guide `src/AGENTS.md`.
@@ -25,6 +26,8 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
+- CLI defaults to the manager agent path; `--mode direct` retains the legacy direct pipeline.
+- Clarified CLI invocation uses a single command (no `run` subcommand) in README examples.
 - Default summary token limit increased to 1,200 (`MAX_TOKENS`) to reduce truncated Responses API outputs on longer articles; README and component guides note the new default.
 - Prompt routing now treats missing classifier confidence as sufficiently confident, so specialized prompts (e.g., content formatter) are used unless a low confidence score is explicitly returned.
 - Clarified in the Agents SDK quick reference that runs are stateless and handled one article at a time.

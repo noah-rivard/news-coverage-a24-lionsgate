@@ -7,4 +7,5 @@
 - Prompt/formatter routing is declarative (`ROUTING_RULES` in `workflow.py`), matching category substrings to prompt files; if the classifier confidence is below `routing_confidence_floor` (default 0.5), the coordinator falls back to `general_news.txt` to stay safe.
 - Batch summarization helper (`summarize_articles_batch` + `_extract_summary_chunks`) accepts one prompt per article and raises when the model returns fewer chunks than articles to avoid silent drops.
 - Prompt templates live in `src/prompts/`; keep `workflow.PROMPTS_DIR` aligned if relocating.
+- Manager-agent path lives in `agent_runner.py` (Agents SDK). CLI defaults to `--mode agent`, with `--mode direct` retaining the legacy pipeline. Agent tools share a `PipelineContext` so classification/summarization/formatting/ingest stay in order.
 - Update this guide whenever workflow behavior, storage paths, or tool signatures change so downstream services and tests remain aligned.
