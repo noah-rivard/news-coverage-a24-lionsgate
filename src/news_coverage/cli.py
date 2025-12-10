@@ -4,7 +4,7 @@ import json
 import dataclasses
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, List
 
 import typer
 from rich import print as rprint
@@ -12,6 +12,7 @@ from rich import print as rprint
 from .models import Article
 from .workflow import ingest_article, process_article
 from .agent_runner import run_with_agent
+from .coverage_builder import build_reports
 
 app = typer.Typer(
     help="Run the coordinator pipeline for a single entertainment news article."
@@ -58,8 +59,9 @@ def _write_output(out_path: Path, markdown: str, json_payload: dict) -> None:
         out_path.write_text(markdown, encoding="utf-8")
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def run(
+    ctx: typer.Context,
     path: Optional[Path] = typer.Argument(None, help="Path to a JSON article payload."),
     out: Optional[Path] = typer.Option(
         None,
@@ -75,7 +77,14 @@ def run(
         case_sensitive=False,
     ),
 ):
-    """Run one article through classify -> summarize -> format -> ingest."""
+    """
+    Default command: run one article through classify -> summarize -> format -> ingest.
+
+    When a subcommand (e.g., build-docx) is invoked, this callback exits early.
+    """
+    if ctx.invoked_subcommand:
+        return
+
     article = _load_article(path)
     debug_root = Path(__file__).resolve().parents[2] / "data" / "samples" / "debug"
     is_debug_fixture = False
@@ -111,6 +120,32 @@ def run(
         rprint(f"[cyan]Wrote output to {out}[/cyan]")
     else:
         rprint(result.markdown)
+
+
+@app.command("build-docx")
+def build_docx_command(
+    articles: List[Path] = typer.Argument(
+        ...,
+        help="One or more article JSON files or directories containing JSON files.",
+    ),
+    quarter: str = typer.Option("2025 Q4", help='Quarter label, e.g., "2025 Q4".'),
+    outdir: Path = typer.Option(
+        Path("docs/samples/news_coverage_docx"),
+        "--outdir",
+        help="Directory to write generated DOCX files and needs_review.txt.",
+    ),
+):
+    """
+    Build multi-buyer News Coverage DOCX files for the given quarter.
+
+    Notes:
+    - Highlights are not auto-generated.
+    - Articles missing published_at are written to needs_review.txt.
+    - Weak keyword matches are flagged to needs_review.txt.
+    """
+    rprint("[cyan]Building buyer DOCXs...[/cyan]")
+    build_reports(articles, quarter_label=quarter, output_dir=outdir)
+    rprint(f"[green]Done. Files written under {outdir}[/green]")
 
 
 def main():

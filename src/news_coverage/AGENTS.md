@@ -8,4 +8,6 @@
 - Batch summarization helper (`summarize_articles_batch` + `_extract_summary_chunks`) accepts one prompt per article and raises when the model returns fewer chunks than articles to avoid silent drops.
 - Prompt templates live in `src/prompts/`; keep `workflow.PROMPTS_DIR` aligned if relocating.
 - Manager-agent path lives in `agent_runner.py` (Agents SDK). CLI defaults to `--mode agent`, with `--mode direct` retaining the legacy pipeline. Agent tools share a `PipelineContext` so classification/summarization/formatting/ingest stay in order.
+- Typer CLI uses the root command as the single-article runner (no `run` subcommand needed); the `build-docx` helper remains a subcommand.
 - Update this guide whenever workflow behavior, storage paths, or tool signatures change so downstream services and tests remain aligned.
+- Multi-buyer DOCX generation is handled via `coverage_builder.py` and `docx_builder.py`, invoked through `python -m news_coverage.cli build-docx`. It relies on keyword-based buyer routing (`buyer_routing.py`) and writes outputs to `docs/samples/news_coverage_docx/`; keep these paths and rules in sync with README/CHANGELOG.

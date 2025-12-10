@@ -10,6 +10,7 @@ Gotchas and expectations:
 - Favor Pydantic models for external inputs/outputs to keep validation strict and user-facing text consistent.
 - Any change to behavior or structure here must be mirrored in this `AGENTS.md` and documented in `README.md` plus `CHANGELOG.md`.
 - Run `pytest` and `flake8` after modifications in this area; tests should not require internet access.
+- DOCX generation for buyer-specific reports lives in `coverage_builder.py` + `docx_builder.py`; it uses the existing agent pipeline for summaries. Update this guide if output locations, keyword routing, or CLI flags change.
 
 Recent changes:
 - Manager-agent path added in `agent_runner.py`; CLI defaults to `--mode agent` with a `--mode direct` fallback to the previous hand-wired pipeline.

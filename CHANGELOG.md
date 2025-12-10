@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
+- Multi-buyer DOCX generation pipeline: buyer keyword routing (`buyer_routing.py`), coverage/DOCX builders, and CLI command `build-docx` to produce Q4 2025 News Coverage files per buyer plus `needs_review.txt`.
+- Dependency on `python-docx` to render coverage reports styled after the WBD Q2 template.
 - ROADMAP outlining the agent-as-tool workflow decisions, sequential processing, and future reviewer agent.
 - ExecPlan for building the Python OpenAI Agents workflow (`.agent/in_progress/execplan-news-agent.md`).
 - Project scaffolding with `pyproject.toml`, package source under `src/news_coverage/`, and component guide `src/AGENTS.md`.
@@ -26,6 +28,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
+- README documents the DOCX generator and how to invoke it.
 - CLI defaults to the manager agent path; `--mode direct` retains the legacy direct pipeline.
 - Clarified CLI invocation uses a single command (no `run` subcommand) in README examples.
 - Default summary token limit increased to 1,200 (`MAX_TOKENS`) to reduce truncated Responses API outputs on longer articles; README and component guides note the new default.
@@ -44,3 +47,4 @@ All notable changes to this project will be documented in this file. This projec
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
 - Summarizer requests omit `temperature` when using `gpt-5-mini`, avoiding API 400 errors.
 - Multi-article summary parsing now validates a 1:1 article-to-chunk mapping and raises if the model omits sections, preventing silent loss of stories.
+- Typer CLI now treats the single-article runner as the default callback (no `run` subcommand needed), so `python -m news_coverage.cli path/to/article.json` matches the documented usage again.

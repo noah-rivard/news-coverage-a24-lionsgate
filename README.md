@@ -31,6 +31,16 @@ Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summar
 
 By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long.
 
+### Generate DOCX coverage reports (multi-buyer)
+
+Run the new helper to produce Q4 2025 News Coverage DOCX files for each buyer plus a single `needs_review.txt`:
+
+```
+python -m news_coverage.cli build-docx data/my_articles --quarter "2025 Q4"
+```
+
+Provide one or more JSON article files (or a directory of them). Articles missing `published_at` or with only weak keyword matches are logged to `needs_review.txt`. Highlights are left for manual editing in the DOCX.
+
 Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` (ISO datetime). Example:
 
 ```
@@ -48,7 +58,7 @@ Payload format: one JSON object (not a list) with `title`, `source`, `url`, `con
 - Reuse the three sample Variety articles in `data/samples/debug/` when you need a quick, repeatable input. Each file now contains the full article body text from Dec. 5, 2025 Variety stories so runs mirror real ingest conditions. Each file is a single JSON object so it works directly with the CLI. Example:
 
 ```
-python -m news_coverage.cli run data/samples/debug/variety_wga_netflix_warner_merger.json --out scratch.md
+python -m news_coverage.cli data/samples/debug/variety_wga_netflix_warner_merger.json --out scratch.md
 ```
 
 - The set covers the Netflix-Warner Bros. merger story, an A24/Peacock series announcement, and a column on what a Netflix-owned Warner Bros. would mean for theaters.

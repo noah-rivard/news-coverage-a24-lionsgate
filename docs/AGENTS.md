@@ -8,3 +8,4 @@ Gotchas and expectations:
 - If a doc describes behavior (e.g., API contract, workflow steps), ensure the corresponding code and tests reflect it.
 - Use ASCII and short sections so non-technical collaborators can skim.
 - Documentation-only edits do not require running `pytest` or `flake8`; code changes still do.
+- The DOCX generator for multi-buyer coverage is documented in README; keep this file aligned when CLI flags or output locations change.
