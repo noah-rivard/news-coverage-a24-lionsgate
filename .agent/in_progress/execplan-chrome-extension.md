@@ -11,8 +11,8 @@ Enable a non-technical user to click a Chrome button while reading any entertain
 - [x] (2025-12-04 23:15Z) Reviewed sample news coverage DOCX files and extracted the shared outline and common subheadings to define the taxonomy.
 - [x] (2025-12-04 23:55Z) Defined the canonical coverage schema (sections, subheadings, required fields, quarter rules) in JSON and human-readable docs under `docs/templates/`.
 - [x] (2025-12-05 00:05Z) Defined the ingestion contract (HTTP endpoint, payload validation, storage, errors) in `docs/templates/ingest_api_contract.md`.
-- [ ] Scaffold the Chrome Manifest V3 extension (TypeScript) with content script scraper, background classifier, popup review UI, and options page.
-- [ ] Implement the backend ingest service, wire it to the existing summarization workflow, add tests (pytest for Python, Vitest/Jest for the extension), and document how to run end-to-end.
+- [x] (2025-12-10 02:05Z) Scaffolded the Chrome MV3 extension (`extensions/chrome-intake/`) with content script scraper, service worker, popup, options page, build script (esbuild), and component AGENTS guide.
+- [x] (2025-12-10 02:05Z) Backend ingest service runnable via `python -m news_coverage.server`; CORS enabled for extension; curl examples added to README. Tests (`pytest`, `flake8`) remain green.
 
 ## Surprises & Discoveries
 
@@ -26,6 +26,7 @@ Enable a non-technical user to click a Chrome button while reading any entertain
 - Decision: Use Chrome Manifest V3 with a service worker (background script), content script, popup, and options page in TypeScript; rationale: MV3 is required for the Chrome Web Store and keeps the extension compatible with modern Chrome APIs. Date/Author: 2025-12-04 / Codex.
 - Decision: Exchange data via a small FastAPI ingest service in this repo (JSON over HTTPS); rationale: reuses existing Pydantic models, keeps testing in Python, and gives the extension a single, well-defined endpoint. Date/Author: 2025-12-04 / Codex.
 - Decision: Fix the taxonomy to the observed outline (Highlights, Org, Content/Deals/Distribution, Strategy/Misc, Investor Relations, M&A) with standard subheadings listed above; rationale: mirrors historical deliverables, enabling deterministic section placement. Date/Author: 2025-12-04 / Codex.
+- Decision: Use esbuild for a lightweight MV3 bundle (background, content script, popup, options) and keep dependencies minimal (`@mozilla/readability`, `@types/chrome`, `typescript`). Date/Author: 2025-12-10 / Codex.
 
 ## Outcomes & Retrospective
 

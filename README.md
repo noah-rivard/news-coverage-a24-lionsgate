@@ -31,38 +31,6 @@ Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summar
 
 By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long.
 
-### Generate DOCX coverage reports (multi-buyer)
-
-### Run the ingest server for the Chrome extension
-
-Start the FastAPI service locally (defaults to port 8000 and CORS enabled for all origins):
-
-`
-python -m news_coverage.server
-# or
-uvicorn news_coverage.server:app --host 0.0.0.0 --port 8000
-`
-
-Health check:
-
-`
-curl http://localhost:8000/health
-`
-
-Ingest an article (matches the coverage schema):
-
-`
-curl -X POST http://localhost:8000/ingest/article ^
-  -H "Content-Type: application/json" ^
-  -d "{"company":"A24","quarter":"2025 Q4","section":"Content / Deals / Distribution","subheading":"Development","title":"Example","source":"Variety","url":"https://example.com","published_at":"2025-12-01"}"
-`
-
-Environment knobs:
-- INGEST_DATA_DIR to change storage root.
-- INGEST_HOST / INGEST_PORT / INGEST_RELOAD for server startup.
-- CORS_ALLOW_ALL (default true) or CORS_ALLOW_ORIGINS (comma-separated) to constrain extension access.
-
-
 Run the new helper to produce Q4 2025 News Coverage DOCX files for each buyer plus a single `needs_review.txt`:
 
 ```
@@ -70,6 +38,58 @@ python -m news_coverage.cli build-docx data/my_articles --quarter "2025 Q4"
 ```
 
 Provide one or more JSON article files (or a directory of them). Articles missing `published_at` or with only weak keyword matches are logged to `needs_review.txt`. Highlights are left for manual editing in the DOCX.
+
+### Run the ingest server for the Chrome extension
+
+Start the FastAPI service locally (defaults to port 8000 and CORS enabled for all origins):
+
+```
+python -m news_coverage.server
+# or
+uvicorn news_coverage.server:app --host 0.0.0.0 --port 8000
+```
+
+Health check:
+
+```
+curl http://localhost:8000/health
+```
+
+Ingest an article (matches the coverage schema):
+
+```
+curl -X POST http://localhost:8000/ingest/article ^
+  -H "Content-Type: application/json" ^
+  -d "{\"company\":\"A24\",\"quarter\":\"2025 Q4\",\"section\":\"Content / Deals / Distribution\",\"subheading\":\"Development\",\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"published_at\":\"2025-12-01\"}"
+```
+
+Environment knobs:
+- `INGEST_DATA_DIR` to change storage root.
+- `INGEST_HOST` / `INGEST_PORT` / `INGEST_RELOAD` for server startup.
+- `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
+
+### Chrome extension scaffold (MV3)
+
+Location: `extensions/chrome-intake/`
+
+Build (requires Node/npm; if scripts are blocked, enable script execution for npm):
+
+```
+cd extensions/chrome-intake
+npm install
+npm run build
+```
+
+Load in Chrome:
+1) Open `chrome://extensions/`, enable Developer Mode.
+2) Click “Load unpacked” and choose `extensions/chrome-intake/dist/`.
+3) Visit an article page; the content script scrapes it automatically.
+4) Click the extension icon (popup) and press “Send to ingest” to post to the backend.
+
+Configure endpoint:
+- In the options page, set the ingest URL (default `http://localhost:8000/ingest/article`).
+
+Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`.
 
 Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` (ISO datetime). Example:
 

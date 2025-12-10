@@ -1,0 +1,17 @@
+{
+  "name": "chrome-intake",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "lint": "echo \"No JS lint configured yet\"",
+    "test": "echo \"Add Vitest/Jest when heuristics land\""
+  },
+  "devDependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "@types/chrome": "^0.0.258",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.4.0"
+  }
+}

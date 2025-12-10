@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file. This projec
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - Multi-buyer DOCX generation pipeline: buyer keyword routing (`buyer_routing.py`), coverage/DOCX builders, and CLI command `build-docx` to produce Q4 2025 News Coverage files per buyer plus `needs_review.txt`.
 - Dependency on `python-docx` to render coverage reports styled after the WBD Q2 template.
+- Chrome MV3 extension scaffold under `extensions/chrome-intake/` with content script (Readability-based scrape), service worker, popup, options page, esbuild bundling, and component AGENTS guide.
+- README now documents how to build/load the extension and run the ingest server for it.
 - ROADMAP outlining the agent-as-tool workflow decisions, sequential processing, and future reviewer agent.
 - ExecPlan for building the Python OpenAI Agents workflow (`.agent/in_progress/execplan-news-agent.md`).
 - Project scaffolding with `pyproject.toml`, package source under `src/news_coverage/`, and component guide `src/AGENTS.md`.
