@@ -9,12 +9,32 @@ from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .schema import load_schema, validate_article_payload
 
 
 app = FastAPI(title="News Coverage Ingest")
+
+
+def _add_cors(app: FastAPI) -> None:
+    """Allow browser extensions to call the API during local development."""
+    allow_all = os.getenv("CORS_ALLOW_ALL", "true").lower() == "true"
+    origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
+    origins = [o.strip() for o in origins_env.split(",") if o.strip()]
+    if allow_all or not origins:
+        origins = ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+_add_cors(app)
 
 
 def storage_root() -> Path:
@@ -91,3 +111,14 @@ def ingest_article(payload: Dict[str, Any]) -> JSONResponse:
         "normalized_quarter": validated["quarter"],
     }
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "news_coverage.server:app",
+        host=os.getenv("INGEST_HOST", "0.0.0.0"),
+        port=int(os.getenv("INGEST_PORT", "8000")),
+        reload=os.getenv("INGEST_RELOAD", "false").lower() == "true",
+    )

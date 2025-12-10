@@ -33,6 +33,36 @@ By default summaries can use up to 1,200 tokens; set the environment variable `M
 
 ### Generate DOCX coverage reports (multi-buyer)
 
+### Run the ingest server for the Chrome extension
+
+Start the FastAPI service locally (defaults to port 8000 and CORS enabled for all origins):
+
+`
+python -m news_coverage.server
+# or
+uvicorn news_coverage.server:app --host 0.0.0.0 --port 8000
+`
+
+Health check:
+
+`
+curl http://localhost:8000/health
+`
+
+Ingest an article (matches the coverage schema):
+
+`
+curl -X POST http://localhost:8000/ingest/article ^
+  -H "Content-Type: application/json" ^
+  -d "{"company":"A24","quarter":"2025 Q4","section":"Content / Deals / Distribution","subheading":"Development","title":"Example","source":"Variety","url":"https://example.com","published_at":"2025-12-01"}"
+`
+
+Environment knobs:
+- INGEST_DATA_DIR to change storage root.
+- INGEST_HOST / INGEST_PORT / INGEST_RELOAD for server startup.
+- CORS_ALLOW_ALL (default true) or CORS_ALLOW_ORIGINS (comma-separated) to constrain extension access.
+
+
 Run the new helper to produce Q4 2025 News Coverage DOCX files for each buyer plus a single `needs_review.txt`:
 
 ```
