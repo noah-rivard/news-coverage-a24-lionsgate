@@ -23,12 +23,18 @@ def _add_cors(app: FastAPI) -> None:
     allow_all = os.getenv("CORS_ALLOW_ALL", "true").lower() == "true"
     origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
     origins = [o.strip() for o in origins_env.split(",") if o.strip()]
+    allow_credentials = (
+        os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+    )
     if allow_all or not origins:
         origins = ["*"]
+    if origins == ["*"] and allow_credentials:
+        # Starlette/FastAPI disallow wildcard origins when credentials are enabled.
+        allow_credentials = False
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=True,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

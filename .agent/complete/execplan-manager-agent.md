@@ -4,14 +4,14 @@ This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, 
 
 ## Purpose / Big Picture
 
-Enable a true manager agent (OpenAI Agents SDK) to orchestrate the existing classify → summarize → format → ingest tools for one article. After this change, a user can run the CLI with the agent path and see the manager call the tools in order, producing the same Markdown plus JSONL ingest as today. This demonstrates the intended architecture and de-risks future multi-tool behaviors.
+Enable a manager agent (OpenAI Agents SDK) to orchestrate the existing classify + summarize + format + ingest tools for one article. After this change, a user can run the CLI in agent mode and see the manager call the tools in order, producing the same Markdown plus JSONL ingest as today. This demonstrates the intended architecture and de-risks future multi-tool behaviors.
 
 ## Progress
 
 - [x] (2025-12-09 20:15Z) Drafted ExecPlan and captured current state.
 - [x] (2025-12-09 21:05Z) Implemented `src/news_coverage/agent_runner.py` with Agents SDK manager + tools (classify, summarize, format, ingest) sharing a pipeline context.
 - [x] (2025-12-09 21:18Z) Added CLI mode flag (`--mode agent|direct`, default agent) delegating to the new agent runner while keeping the direct pipeline and debug fixture duplicate skip.
-- [x] (2025-12-09 21:35Z) Added offline tests (`tests/test_agent_runner.py`) using a fake Runner to validate agent wiring, tool count, and skip_duplicate handling.
+- [x] (2025-12-09 21:35Z) Added offline tests (`tests/test_agent_runner.py`) using a fake Runner to validate agent wiring, tool count, and `skip_duplicate` handling.
 - [x] (2025-12-09 21:50Z) Updated README, component AGENTS guides, and CHANGELOG for the new agent mode/default and CLI flag.
 - [x] (2025-12-09 21:58Z) Ran `pytest` (21 passed) and `flake8` (clean after minor test tidy).
 
@@ -26,11 +26,11 @@ Enable a true manager agent (OpenAI Agents SDK) to orchestrate the existing clas
 
 ## Outcomes & Retrospective
 
-- Manager agent path now exists and is default in the CLI, with a direct fallback. Offline tests cover tool wiring and duplicate-skip behavior; full suite remains green. Docs/CHANGELOG updated; no regressions observed.
+- Manager agent path exists and is the CLI default, with a direct fallback. Offline tests cover tool wiring and duplicate-skip behavior; the full suite remained green. Docs and CHANGELOG landed alongside the code, and smoke runs showed no regressions.
 
 ## Context and Orientation
 
-Current flow (`src/news_coverage/workflow.py`) calls OpenAI Responses API directly for classify/summarize, formats Markdown, and ingests to JSONL. CLI (`src/news_coverage/cli.py`) runs one article with optional `--out` and skips duplicate checks for debug fixtures. No manager agent exists despite `openai-agents` dependency. Tests live in `tests/`, relying on stubs (no network). Component guides in `AGENTS.md`, `src/AGENTS.md`, and `src/news_coverage/AGENTS.md` require updates when behavior changes. ROADMAP calls for an agent-managed workflow.
+Current flow (`src/news_coverage/workflow.py`) calls the OpenAI Responses API directly for classify/summarize, formats Markdown, and ingests to JSONL. CLI (`src/news_coverage/cli.py`) runs one article with optional `--out` and skips duplicate checks for debug fixtures. No manager agent exists despite the `openai-agents` dependency. Tests live in `tests/`, relying on stubs (no network). Component guides in `AGENTS.md`, `src/AGENTS.md`, and `src/news_coverage/AGENTS.md` require updates when behavior changes. ROADMAP calls for an agent-managed workflow.
 
 ## Plan of Work
 
@@ -58,7 +58,7 @@ Describe edits concretely:
 - Add/adjust tests in `tests/` (likely `test_agent_runner.py` new file plus CLI coverage).
 - Update docs and CHANGELOG.
 - Run `pytest` then `flake8`.
-- Update this plan’s `Progress`, `Decision Log`, `Surprises`, and `Outcomes` after each milestone.
+- Update this plan's `Progress`, `Decision Log`, `Surprises`, and `Outcomes` after each milestone.
 
 ## Validation and Acceptance
 
@@ -70,7 +70,7 @@ Acceptance behaviors:
 
 ## Idempotence and Recovery
 
-Agent runs are stateless per article. CLI flag defaults to agent but direct mode remains available. Storage is append-only JSONL; reruns may create duplicates unless skip flag is triggered for debug fixtures. No migrations; safe to rerun tests and CLI.
+Agent runs are stateless per article. CLI flag defaults to agent but direct mode remains available. Storage is append-only JSONL; reruns may create duplicates unless `skip_duplicate` is triggered for debug fixtures. No migrations; safe to rerun tests and CLI.
 
 ## Artifacts and Notes
 

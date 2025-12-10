@@ -20,13 +20,13 @@ We want a Python-based agent workflow that ingests entertainment news (Deadline,
 
 ## Decision Log
 
-- Decision: Use Python with `openai-agents` and `openai` Responses API as the core stack.
-  Rationale: Aligns with user request and current OpenAI guidance for agent workflows.
+- Decision: Use Python with `openai-agents` and `openai` Responses API as the core stack.  
+  Rationale: Aligns with user request and current OpenAI guidance for agent workflows.  
   Date/Author: 2025-12-04 / Codex
 
 ## Outcomes & Retrospective
 
-- To be completed after implementation and validation.
+- Repo scaffolded with `pyproject.toml`, `src/news_coverage/` package, CLI stub, component guide, tests, and lint configuration. Baseline workflow using the Responses API with offline fallback is in place, and `pytest`/`flake8` were green on 2025-12-04. README and CHANGELOG document the initial capabilities. Remaining risk: workflow is intentionally minimal and will evolve once real prompts/models are wired.
 
 ## Context and Orientation
 
@@ -51,7 +51,7 @@ Current repository only contains `README.md`, `AGENTS.md`, and `CHANGELOG.md`. N
 - Working directory: repository root.
 - Commands to run (in order):
   - `python -m pip install --upgrade pip`
-  - `python -m pip install -e .[dev]` (or `pip install -e . && pip install -r requirements-dev.txt` depending on packaging)
+  - `python -m pip install -e ".[dev]"` (or `pip install -e . && pip install -r requirements-dev.txt` depending on packaging)
   - `pytest`
   - `flake8`
 - If adding a CLI demo: `python -m news_coverage.cli sample` (or equivalent Typer command) to print formatted summaries.

@@ -10,4 +10,5 @@
 - Manager-agent path lives in `agent_runner.py` (Agents SDK). CLI defaults to `--mode agent`, with `--mode direct` retaining the legacy pipeline. Agent tools share a `PipelineContext` so classification/summarization/formatting/ingest stay in order.
 - Typer CLI uses the root command as the single-article runner (no `run` subcommand needed); the `build-docx` helper remains a subcommand.
 - Update this guide whenever workflow behavior, storage paths, or tool signatures change so downstream services and tests remain aligned.
+- Ingest server CORS: `CORS_ALLOW_ALL` defaults to true; if origins resolve to `*` we automatically disable credentials to satisfy Starlette's wildcard+credentials restriction. To permit credentials, set explicit origins via `CORS_ALLOW_ORIGINS` and leave `CORS_ALLOW_CREDENTIALS=true` (default).
 - Multi-buyer DOCX generation is handled via `coverage_builder.py` and `docx_builder.py`, invoked through `python -m news_coverage.cli build-docx`. It relies on keyword-based buyer routing (`buyer_routing.py`) and writes outputs to `docs/samples/news_coverage_docx/`; keep these paths and rules in sync with README/CHANGELOG.

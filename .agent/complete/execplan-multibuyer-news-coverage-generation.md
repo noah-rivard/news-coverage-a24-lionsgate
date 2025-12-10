@@ -1,4 +1,4 @@
-# Q4 2025 Multi‑Buyer News Coverage DOCX Generation
+# Q4 2025 Multi-Buyer News Coverage DOCX Generation
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept current as work proceeds. Follow `.agent/PLANS.md`.
 
@@ -12,11 +12,11 @@ Enable a one-command workflow that generates Q4 2025 “News Coverage” DOCX fi
 - [x] (2025-12-09 17:05Z) Implementation in progress.
 - [x] (2025-12-09 18:05Z) Implementation complete; docs/tests updated.
 - [x] (2025-12-09 18:10Z) Validation (pytest/flake8/CLI demo) complete.
-- [ ] Retrospective written.
+- [x] (2025-12-10 16:00Z) Retrospective written and plan closed.
 
 ## Surprises & Discoveries
 
-- None yet.
+- None observed during the build; template styles mapped cleanly to `python-docx`.
 
 ## Decision Log
 
@@ -24,19 +24,19 @@ Enable a one-command workflow that generates Q4 2025 “News Coverage” DOCX fi
 - Decision: Buyer set = Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate. (2025-12-09 / you)
 - Decision: No auto Highlights; manual later. (2025-12-09 / you)
 - Decision: Multi-buyer detection via keyword rules; strong matches auto-include, weak matches flagged. (2025-12-09 / you)
-- Decision: Missing `published_at` → block and send to “Needs review.” (2025-12-09 / you)
+- Decision: Missing `published_at` -> block and send to “Needs review.” (2025-12-09 / you)
 - Decision: Re-run summaries for provided article JSONs; use results directly for DOCX (no need to append to ingest files). (2025-12-09 / you)
 
 ## Outcomes & Retrospective
 
-- Implemented keyword-based buyer routing, DOCX generation, CLI (`build-docx`), and consolidated review logging; docs/CHANGELOG updated.
-- Validation: `pytest` (21 passed) and `flake8` clean on 2025-12-09.
+- Built keyword-based routing, coverage assembly, and DOCX rendering with `python-docx`, plus a `build-docx` CLI that emits per-buyer Q4 2025 reports and a consolidated `needs_review.txt`. Tests (`pytest` 21 passed) and `flake8` were green on 2025-12-09, and README/CHANGELOG/AGENTS were updated alongside the code.
+- The template mapping held up without requiring custom fonts; remaining manual work is limited to Highlights and any items flagged in the review file. Future quarters can reuse the builder by swapping the quarter label and template path.
 
 ## Context and Orientation
 
-- Current pipeline (`src/news_coverage/workflow.py` and `agent_runner.py`) classifies, summarizes, formats Markdown, and ingests to JSONL under `data/ingest/{company}/{quarter}.jsonl`. Company inference is rudimentary (A24, Lionsgate, Unknown).
+- Current flow (`src/news_coverage/workflow.py` and `agent_runner.py`) classifies, summarizes, formats Markdown, and ingests to JSONL under `data/ingest/{company}/{quarter}.jsonl`. Company inference is rudimentary (A24, Lionsgate, Unknown).
 - Coverage schema lives at `docs/templates/coverage_schema.{json,md}` and defines sections/subheadings matching historical DOCX structure (Sections 0–5: Highlights, Org, Content/Deals/Distribution, Strategy & Misc, Investor Relations, M&A).
-- No DOCX generation code or docx library exists today.
+- No DOCX generation code or docx library exists before this work.
 - Style/example DOCX files are under `docs/samples/news_coverage_docx/`; chosen template: `2025 Q2 Warner Bros Discovery News Coverage.docx`.
 - Sample outputs in `docs/sample_outputs.md` show Title/Category/Content markdown, not DOCX.
 - Tests expect pytest/flake8; code changes require updates to README and CHANGELOG per repo rules.
@@ -55,7 +55,7 @@ Enable a one-command workflow that generates Q4 2025 “News Coverage” DOCX fi
 
    Keyword list v1 (case-insensitive):
    - Amazon: amazon, prime video, mgm, amazon mgm, freevee
-   - Apple: apple, apple tv+, appletv, tv, tv plus
+   - Apple: apple, apple tv+, appletv, apple tv, tv plus
    - Comcast/NBCU: comcast, nbc, nbcu, peacock, universal, universal pictures, universal tv, usa network, syfy, bravo, telemundo, sky
    - Disney: disney, disney+, disney plus, walt disney, wdw, pixar, marvel, lucasfilm, espn, hulu, abc, fx, nat geo
    - Netflix: netflix, nflx
@@ -140,7 +140,7 @@ Enable a one-command workflow that generates Q4 2025 “News Coverage” DOCX fi
 ## Interfaces and Dependencies
 
 - New dependency: `python-docx`.
-- New CLI command (proposed): `build-docx` under `news_coverage.cli`.
+- New CLI command: `build-docx` under `news_coverage.cli`.
 - Uses existing agent pipeline (`agent_runner.run_with_agent`) for re-summarization; relies on `classification_notes` for section mapping.
 - Keyword routing module exposes functions: `match_buyers(article) -> (strong_matches, weak_matches)`.
-- DOCX writer consumes normalized records: title, summary bullets, section, subheading, medium lane, published_at, URL, buyer matches.
+- DOCX writer consumes normalized records: title, summary bullets, section, subheading, medium lane, `published_at`, URL, buyer matches.

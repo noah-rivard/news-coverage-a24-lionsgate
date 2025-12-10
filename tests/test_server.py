@@ -33,6 +33,14 @@ def test_health(tmp_path):
     assert resp.json()["status"] == "ok"
 
 
+def test_cors_wildcard_disables_credentials():
+    cors = next(
+        m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware"
+    )
+    assert cors.kwargs["allow_origins"] == ["*"]
+    assert cors.kwargs["allow_credentials"] is False
+
+
 def test_ingest_stores_article(tmp_path):
     client = make_client(tmp_path)
     payload = sample_payload()

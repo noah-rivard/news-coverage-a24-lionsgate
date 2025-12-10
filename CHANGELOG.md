@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. This projec
 ## [Unreleased]
 
 ### Added
+- Component guide for the planning area (`.agent/AGENTS.md`) plus a `complete/` folder for finished ExecPlans.
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - Multi-buyer DOCX generation pipeline: buyer keyword routing (`buyer_routing.py`), coverage/DOCX builders, and CLI command `build-docx` to produce Q4 2025 News Coverage files per buyer plus `needs_review.txt`.
 - Dependency on `python-docx` to render coverage reports styled after the WBD Q2 template.
@@ -29,6 +30,7 @@ All notable changes to this project will be documented in this file. This projec
 - Sample output markdown for the three debug fixtures (`docs/sample_outputs.md`) generated with the latest pipeline defaults.
 
 ### Changed
+- README cleanup: clarified Chrome extension steps, fixed output format bullet, and pointed ExecPlan references to `.agent/complete/`.
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
 - README documents the DOCX generator and how to invoke it.
 - CLI defaults to the manager agent path; `--mode direct` retains the legacy direct pipeline.
@@ -46,7 +48,11 @@ All notable changes to this project will be documented in this file. This projec
 - Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
+- Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
 - Summarizer requests omit `temperature` when using `gpt-5-mini`, avoiding API 400 errors.
 - Multi-article summary parsing now validates a 1:1 article-to-chunk mapping and raises if the model omits sections, preventing silent loss of stories.
 - Typer CLI now treats the single-article runner as the default callback (no `run` subcommand needed), so `python -m news_coverage.cli path/to/article.json` matches the documented usage again.
+- Chrome intake content script now normalizes `published_at` to `YYYY-MM-DD` (trimming datetime meta tags) to satisfy the ingest schema; README and component guide updated accordingly.
+- Chrome intake service worker derives the `quarter` from the article date (falling back to scrape time or current date) instead of hard-coding `2025 Q4`, preventing mis-filed ingest records across quarters.
+- Chrome intake service worker now falls back to the scrape date for `published_at` when the page lacks a publish date, preventing ingest 400s for pages with missing metadata.

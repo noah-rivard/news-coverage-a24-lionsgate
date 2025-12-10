@@ -7,6 +7,19 @@ function getSource(): string {
   return (meta && meta.getAttribute("content")) || window.location.hostname || "Unknown";
 }
 
+function normalizePublishedDate(raw?: string | null): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+
+  const dateMatch = trimmed.match(/(\d{4}-\d{2}-\d{2})/);
+  if (dateMatch) return dateMatch[1];
+
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) return undefined;
+
+  return new Date(parsed).toISOString().slice(0, 10);
+}
+
 function getPublished(): string | undefined {
   const candidates = [
     "meta[property='article:published_time']",
@@ -17,7 +30,8 @@ function getPublished(): string | undefined {
   for (const sel of candidates) {
     const el = document.querySelector(sel);
     const val = el?.getAttribute("content") || el?.getAttribute("datetime") || el?.textContent;
-    if (val && val.trim()) return val.trim();
+    const normalized = normalizePublishedDate(val);
+    if (normalized) return normalized;
   }
   return undefined;
 }

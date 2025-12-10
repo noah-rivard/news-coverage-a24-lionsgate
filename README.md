@@ -41,7 +41,7 @@ Provide one or more JSON article files (or a directory of them). Articles missin
 
 ### Run the ingest server for the Chrome extension
 
-Start the FastAPI service locally (defaults to port 8000 and CORS enabled for all origins):
+Start the FastAPI service locally (defaults to port 8000 and CORS open to all origins; credentials are disabled for the wildcard case to keep FastAPI happy):
 
 ```
 python -m news_coverage.server
@@ -67,6 +67,7 @@ Environment knobs:
 - `INGEST_DATA_DIR` to change storage root.
 - `INGEST_HOST` / `INGEST_PORT` / `INGEST_RELOAD` for server startup.
 - `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
+- `CORS_ALLOW_CREDENTIALS` (default true, but forced false when origins are `*` to avoid the wildcard+credentials startup error).
 
 ### Chrome extension scaffold (MV3)
 
@@ -82,26 +83,29 @@ npm run build
 
 Load in Chrome:
 1) Open `chrome://extensions/`, enable Developer Mode.
-2) Click “Load unpacked” and choose `extensions/chrome-intake/dist/`.
+2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
 3) Visit an article page; the content script scrapes it automatically.
-4) Click the extension icon (popup) and press “Send to ingest” to post to the backend.
+4) Click the extension icon (popup) and press "Send to ingest" to post to the backend.
 
 Configure endpoint:
 - In the options page, set the ingest URL (default `http://localhost:8000/ingest/article`).
 
 Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`.
 
-Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` (ISO datetime). Example:
+Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date to satisfy `coverage_schema.json`. Example:
 
 ```
 {
   "title": "Example headline",
   "source": "SampleWire",
   "url": "https://example.com/story",
- "content": "Full text of the article...",
-  "published_at": "2025-01-15T00:00:00Z"
+  "content": "Full text of the article...",
+  "published_at": "2025-01-15"
 }
 ```
+
+The service worker derives the `quarter` automatically from `published_at` (falling back to the scrape timestamp, then the current date), so articles land in the correct reporting period without manual entry.
+If a page does not expose a publish date, the service worker sends the scrape date instead so ingest does not fail on required `published_at`.
 
 ## Debug Fixtures
 
@@ -119,8 +123,7 @@ python -m news_coverage.cli data/samples/debug/variety_wga_netflix_warner_merger
 Markdown output is delivery-ready and follows three lines:
 - `Title: <headline>`
 - `Category: <classifier path with arrows>`
-- `Content: <leading summary sentence> ([M/D](article_url))` — the date (month/day) is the hyperlink to the article.
-
+- `Content: <leading summary sentence> ([M/D](article_url))` -- the date (month/day) is the hyperlink to the article.
 ## Workflow Pattern (current decision)
 
 - One coordinator (manager model) stays in control and calls specialist helpers as tools: classify (fine-tuned), summarize, format (Markdown), ingest (schema + JSONL storage).
@@ -153,7 +156,7 @@ Markdown output is delivery-ready and follows three lines:
 Review `AGENTS.md` before making changes. Key points:
 - Run `pytest` and `flake8` after code changes.
 - Update component `AGENTS.md` files when behavior changes.
-- Use ExecPlans for complex work per `.agent/PLANS.md`; place them under `.agent/in_progress/` or `.agent/completed/` as appropriate.
+- Use ExecPlans for complex work per `.agent/PLANS.md`; place them under `.agent/in_progress/` while active and `.agent/complete/` when finished.
 
 ## Roadmap
 

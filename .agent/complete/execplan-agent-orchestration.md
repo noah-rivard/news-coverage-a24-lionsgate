@@ -1,10 +1,10 @@
-# Coordinator Agent Orchestration with Specialist Tools (Stateless, One Article Per Run)
+# Coordinator Agent Orchestration with Specialist Tools (stateless, one article per run)
 
 This ExecPlan is a living document. Maintain `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` as work proceeds, in line with `.agent/PLANS.md`.
 
 ## Purpose / Big Picture
 
-Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one article end-to-end, invoking specialist tools for: (1) classification (section/subheading via fine-tuned model), (2) summarization, (3) formatting to Markdown, and (4) ingest (schema validation + storage). Runs remain stateless, refuse to start without `OPENAI_API_KEY`, and surface any failure immediately. Output is a Markdown bullet list suitable for human readers; CLI can also write JSON/Markdown to disk.
+Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one article end-to-end, invoking specialist tools for: (1) classification (section/subheading via fine-tuned model), (2) summarization, (3) formatting to Markdown, and (4) ingest (schema validation + storage). Runs remain stateless, refuse to start without `OPENAI_API_KEY`, and surface any failure immediately. Output is a Markdown bullet list suitable for human readers; the CLI can also write JSON/Markdown to disk.
 
 ## Progress
 
@@ -14,12 +14,12 @@ Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one art
 - [x] (2025-12-05 17:15Z) Summarize/format tools implemented using prompts and `gpt-5-mini`.
 - [x] (2025-12-05 17:35Z) Ingest tool reusing schema validation/storage; 409 surfaced cleanly.
 - [x] (2025-12-05 17:45Z) CLI updated (API-key requirement, Markdown/JSON output options).
-- [x] (2025-12-05 18:10Z) Tests (unit + light integration) added; pytest/flake8 passing.
+- [x] (2025-12-05 18:10Z) Tests (unit + light integration) added; `pytest`/`flake8` passing.
 - [x] (2025-12-05 18:25Z) Docs/CHANGELOG/README updates completed.
 
 ## Surprises & Discoveries
 
-- Fine-tuned classifier returns plain path strings (no JSON/confidence) despite system prompt requesting JSON; must accept string and optionally parse JSON if present.
+- The fine-tuned classifier returns plain path strings (no JSON/confidence) despite the system prompt requesting JSON; we accept the string and optionally parse JSON if present.
 
 ## Decision Log
 
@@ -31,14 +31,14 @@ Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one art
 
 ## Outcomes & Retrospective
 
-(To be filled after implementation.)
+- Coordinator agent and four tools were wired with the Agents SDK; CLI now enforces `OPENAI_API_KEY`, routes output to stdout or optional files, and stops cleanly on 409 duplicates. Tests and lint were green on 2025-12-05, and docs/CHANGELOG landed with the feature. Remaining risk: reliance on the fine-tuned classifier’s path formatting; added normalization mitigates the biggest mismatch.
 
 ## Context and Orientation
 
-- Current flow: `summarize_articles` uses Responses API with offline fallback; CLI prints Rich table; ingest FastAPI service validates/stores JSONL but not tied to summarization.
-- Models/Schema: `Article`, `ArticleSummary`, `SummaryBundle`; coverage schema in `docs/templates/coverage_schema.json`; tests in `tests/`.
+- Current flow: `summarize_articles` uses the Responses API with offline fallback; CLI prints a Rich table; the ingest FastAPI service validates/stores JSONL but is not tied to summarization.
+- Models/schema: `Article`, `ArticleSummary`, `SummaryBundle`; coverage schema in `docs/templates/coverage_schema.json`; tests in `tests/`.
 - Prompts available: `prompts/commentary.txt`, `prompts/interview.txt`, `prompts/content_formatter.txt`, `prompts/general_news.txt`, `prompts/exec_changes.txt`. Missing: `general_news_summarizer.txt`.
-- Fine-tune label space (38 categories) uses path strings like `Org -> Exec Changes`, `Content, Deals & Distribution -> TV -> Greenlights`, etc.; highlights variants exist (“Highlights From The Quarter/This Quarter”) and need normalization to schema’s `Highlights`.
+- Fine-tune label space (38 categories) uses path strings like `Org -> Exec Changes`, `Content, Deals & Distribution -> TV -> Greenlights`, etc.; highlights variants exist (“Highlights From The Quarter/This Quarter”) and need normalization to the schema’s `Highlights`.
 
 ## Plan of Work
 
@@ -48,22 +48,22 @@ Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one art
    - Enforce API key presence; otherwise abort with clear message.
 
 2) **Classification tool**
-   - Implement tool that calls fine-tuned model with system prompt from training file.
+   - Implement tool that calls the fine-tuned model with the training prompt.
    - Accept plain path string or JSON; normalize to canonical path.
    - Normalize highlights variants to `Highlights`.
    - Derive `section`, `subheading` from path; capture confidence if present, else set `None`.
-   - Company inference (since model doesn’t return company): add lightweight heuristic (regex/keywords for A24/Lionsgate; default `Unknown`); quarter inferred from `published_at`.
+   - Company inference (since model does not return company): add lightweight heuristic (regex/keywords for A24/Lionsgate; default `Unknown`); quarter inferred from `published_at`.
 
 3) **Prompt routing**
    - Map classifier-derived `category` to prompt selection:
-     - Exec Changes → `prompts/exec_changes.txt`
-     - Interview → `prompts/interview.txt`
-     - Commentary/analysis/strategy → `prompts/commentary.txt`
-     - Content deals/greenlights/renewals/cancellations/pickups/general → `prompts/content_formatter.txt` when title formatting is needed; otherwise default to `prompts/general_news.txt`
+     - Exec Changes -> `prompts/exec_changes.txt`
+     - Interview -> `prompts/interview.txt`
+     - Commentary/analysis/strategy -> `prompts/commentary.txt`
+     - Content deals/greenlights/renewals/cancellations/pickups/general -> `prompts/content_formatter.txt` when title formatting is needed; otherwise default to `prompts/general_news.txt`
      - Default fallback: `prompts/general_news.txt`
    - Document mapping and allow override flag for tests.
 
-4) **Summarize & Format tools**
+4) **Summarize & format tools**
    - Summarize tool: use chosen prompt + article body to produce structured bullets (list[str]) and optional tone/takeaway.
    - Format tool: take summary + metadata, emit Markdown string (bulleted list per current style).
    - Ensure deterministic, minimal outputs; no offline mode.
@@ -74,7 +74,7 @@ Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one art
    - Enrich payload with classifier outputs (section/subheading), inferred quarter/company, summary bullets, formatted text as optional fields.
 
 6) **CLI integration**
-   - Update `news_coverage/cli.py` to call coordinator for one article.
+   - Update `news_coverage/cli.py` to call the coordinator for one article.
    - Add `--out` (md or json) optional; default print Markdown to stdout.
    - Remove offline fallback; if no API key, exit with message.
 
@@ -105,7 +105,7 @@ Enable a single “coordinator” agent (manager model `gpt-5.1`) to run one art
 
 ## Idempotence and Recovery
 
-- Re-running coordinator on same URL triggers 409 and leaves store unchanged.
+- Re-running coordinator on the same URL triggers 409 and leaves store unchanged.
 - CLI run is read-only except for ingest append; storage path creation is mkdir -p and safe to rerun.
 
 ## Artifacts and Notes
