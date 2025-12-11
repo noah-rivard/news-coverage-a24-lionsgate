@@ -22,11 +22,15 @@ from typing import Callable, List, Optional
 from openai import OpenAI
 
 from .config import get_settings
+from .buyer_routing import BUYER_KEYWORDS, match_buyers
 from .models import Article
 from .schema import validate_article_payload
 from .server import _ensure_parent, _is_duplicate, _jsonl_path
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
+DATE_PAREN_PATTERN = re.compile(
+    r"\(\s*(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(?:\d{2}|\d{4}))?\s*\)"
+)
 
 
 # --- Data containers -------------------------------------------------------
@@ -83,11 +87,23 @@ def _infer_quarter(published_at: datetime) -> str:
 
 
 def _infer_company(article: Article) -> str:
-    text = f"{article.title} {article.content}".lower()
-    if "a24" in text:
-        return "A24"
-    if "lionsgate" in text or "lions gate" in text:
-        return "Lionsgate"
+    """
+    Infer the primary buyer/company from the article using keyword routing.
+
+    Strong matches come from the title, URL host, or the first ~400 chars of
+    the body; weak matches come from the rest of the body. We pick the first
+    match according to the BUYER_KEYWORDS priority order; fall back to Unknown.
+    """
+
+    priority = list(BUYER_KEYWORDS.keys())
+    matches = match_buyers(article)
+
+    for buyer in priority:
+        if buyer in matches.strong:
+            return buyer
+    for buyer in priority:
+        if buyer in matches.weak:
+            return buyer
     return "Unknown"
 
 
@@ -397,6 +413,12 @@ def _format_date_for_display(dt: date) -> str:
     return f"{dt.month}/{dt.day}"
 
 
+def _has_date_parenthetical(text: str) -> bool:
+    """Return True when the string already contains a date in parenthesis (M/D[/YY])."""
+
+    return bool(DATE_PAREN_PATTERN.search(text))
+
+
 def format_markdown(
     article: Article, classification: ClassificationResult, summary: SummaryResult
 ) -> str:
@@ -473,7 +495,39 @@ DEFAULT_PROMPT = "general_news.txt"
 DEFAULT_FORMATTER = "markdown"
 
 # Maps formatter name to callable to keep the routing table declarative.
-FORMATTERS: dict[str, FormatterFn] = {"markdown": format_markdown}
+
+
+def format_content_deals(
+    article: Article, classification: ClassificationResult, summary: SummaryResult
+) -> str:
+    """Render multi-title content-deals output.
+
+    The summarizer is expected to emit one line per title. We preserve accents and
+    spacing, only appending the article publish date when a line omits a date
+    parenthetical. Dates use M/D without leading zeros, per downstream delivery
+    requirements.
+    """
+
+    publish_date = article.published_at.date() if article.published_at else date.today()
+    date_text = _format_date_for_display(publish_date)
+
+    rendered_lines: list[str] = []
+    for line in summary.bullets:
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        # Append date only when a date parenthetical is missing (ignore other parentheses).
+        if not _has_date_parenthetical(trimmed):
+            trimmed = f"{trimmed} ({date_text})"
+        rendered_lines.append(trimmed)
+
+    return "\n".join(rendered_lines)
+
+
+FORMATTERS: dict[str, FormatterFn] = {
+    "markdown": format_markdown,
+    "content_deals": format_content_deals,
+}
 
 
 ROUTING_RULES: tuple[RoutingRule, ...] = (
@@ -508,6 +562,15 @@ def _route_prompt_and_formatter(
         return DEFAULT_PROMPT, FORMATTERS[DEFAULT_FORMATTER]
 
     category_lower = classification.category.lower()
+
+    # International content deals / slate announcements should use the content-deals
+    # formatter, which preserves multiple titles from the summarizer output.
+    if (
+        classification.section == "Content / Deals / Distribution"
+        and "international" in category_lower
+    ):
+        return "content_deals.txt", FORMATTERS["content_deals"]
+
     for rule in ROUTING_RULES:
         if any(token in category_lower for token in rule.match_any):
             formatter_fn = FORMATTERS.get(rule.formatter, FORMATTERS[DEFAULT_FORMATTER])

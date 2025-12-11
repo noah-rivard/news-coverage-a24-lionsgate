@@ -9,3 +9,4 @@ Gotchas and expectations:
 - Use ASCII and short sections so non-technical collaborators can skim.
 - Documentation-only edits do not require running `pytest` or `flake8`; code changes still do.
 - The DOCX generator for multi-buyer coverage is documented in README; keep this file aligned when CLI flags or output locations change.
+- Coverage schema/ingest docs list all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate, Unknown); keep these in sync with the workflow and schema enums.

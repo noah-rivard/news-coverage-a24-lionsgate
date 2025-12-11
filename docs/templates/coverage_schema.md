@@ -1,10 +1,10 @@
-# Coverage Schema (A24 & Lionsgate)
+# Coverage Schema (Major Buyers)
 
 This schema defines the payload the Chrome extension (and any other intake) must send to the backend. It mirrors the structure used in prior quarterly coverage docs so we can drop items into the right section without manual cleanup.
 
 ## Top-level fields
 
-- `company` (required): "A24", "Lionsgate", or "Unknown" if the classifier is unsure.
+- `company` (required): one of the major buyers `Amazon | Apple | Comcast/NBCU | Disney | Netflix | Paramount | Sony | WBD | A24 | Lionsgate | Unknown`. Use `Unknown` when no clear match.
 - `company_match_confidence`: 0-1 score from the classifier.
 - `company_raw`: The literal string matched in the article (useful for imprints or label names).
 - `quarter` (required): Calendar quarter label in `YYYY Q#` form (e.g., `2025 Q1`).
@@ -83,7 +83,7 @@ Default: derive from `published_at` in the article's local timezone when availab
 ## Usage guidance
 
 - If the classifier cannot decide the subheading, default to `General News & Strategy` and set `classification_notes`.
-- If multiple companies appear, pick the primary focus; if unclear, set `company="Unknown"` and let the reviewer choose.
+- If multiple companies appear, pick the primary focus; when coverage is balanced, default to the highest-priority buyer from the list above or set `company="Unknown"` and let the reviewer choose.
 - When the article predates the target quarter but is still contextually relevant (e.g., a deal announced last quarter), keep the original `published_at` but allow the reviewer to override `quarter` in the popup.
 - Strip page-number artifacts like "Error! No bookmark name given." when generating section headers.
 - Keep fields ASCII; avoid smart quotes to prevent encoding mismatches in downstream DOCX generation.

@@ -1,0 +1,32 @@
+{
+  "markdown": "Title: Netflix Brazil Unveils More Details on Adaptation of Paulo Coelho's \"The Pilgrimage,\" and a New Thriller from Raphael Montes, Brazil's King of Crime\nCategory: Content -> Deals -> Distribution -> International -> General News & Strategy\nContent: Vicente Amorim is attached to direct Netflix Brazil’s film adaptation of Paulo Coelho’s semi-autobiographical novel The Pilgrimage, reuniting Amorim with Netflix and Gullane after directing Senna. ([12/9](https://variety.com/2025/tv/global/netflix-brazil-paulo-coelho-raphael-montes-vicente-amorim-1236604817/))",
+  "classification": {
+    "category": "Content, Deals & Distribution -> International -> General News & Strategy",
+    "section": "Content / Deals / Distribution",
+    "subheading": "General News & Strategy",
+    "confidence": null,
+    "company": "Netflix",
+    "quarter": "2025 Q4"
+  },
+  "summary": {
+    "bullets": [
+      "Vicente Amorim is attached to direct Netflix Brazil’s film adaptation of Paulo Coelho’s semi-autobiographical novel The Pilgrimage, reuniting Amorim with Netflix and Gullane after directing Senna.",
+      "Amorim said he met with Paulo Coelho in Geneva to discuss the film adaptation, which was first announced last year.",
+      "Netflix Brazil unveiled a new film written and adapted by crime writer Raphael Montes titled A Estranha na Cama, which Montes is adapting from his own upcoming novel.",
+      "Netflix Brazil announced five new titles at the Born in Brazil showcase, including series from Carolina Duro and the creative team of Claudio Pavia and Maurício Farias, plus a scripted reality show hosted by Claudia Raia.",
+      "Netflix presented Rauls, a new series from KondZilla and LB Entertainment focused on cyber scams among young people set in poor urban outskirts, with overall direction by Kaique Alves and production by Manas Filmes.",
+      "Rauls was described as distinct from the Sintonia franchise despite sharing the same setting, and its screenplay credits include Thiago Dottori, Raul Perez, Donna Oliveira, and Teodoro Poppovic.",
+      "Netflix previewed Habeas Corpus, a courtroom drama inspired by the Innocence Project Brasil starring Marjorie Estiano and Any Gabrielly, directed by Luiz Villaça and produced by Caf Royal.",
+      "Netflix framed the Born in Brazil presentation as both a slate reveal and a celebration of its deepening relationships with Brazil’s creative community and the country’s expanding global reach.",
+      "Variety counted at least 17 Brazilian titles that entered Netflix’s Global Top 10 since June 2025, underscoring a notable increase in Netflix Brazilian global hits in 2025.",
+      "Netflix executives emphasized a strategic push into Brazilian movies in 2025, noting the platform licensed 55 Brazilian films to honor local culture and to help projects become financially viable.",
+      "Netflix credited its pre-license policy with attracting additional funders and cited that 13 of the 17 Brazilian titles in the Global Top"
+    ],
+    "tone": null,
+    "takeaway": null
+  },
+  "ingest": {
+    "stored_path": "C:\\Users\\KBAsst\\Coding\\news-coverage-a24-lionsgate\\data\\ingest\\Netflix\\2025 Q4.jsonl",
+    "duplicate_of": "https://variety.com/2025/tv/global/netflix-brazil-paulo-coelho-raphael-montes-vicente-amorim-1236604817/"
+  }
+}

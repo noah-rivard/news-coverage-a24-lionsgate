@@ -44,17 +44,19 @@ BUYER_KEYWORDS: Dict[str, Tuple[str, ...]] = {
         "nat geo",
     ),
     "Netflix": ("netflix", "nflx"),
+    # Put broadcast brands first so title/lead hits become strong before
+    # broader "paramount" body matches can short-circuit as weak.
     "Paramount": (
-        "paramount",
-        "paramount+",
-        "paramount plus",
-        "p+",
         "cbs",
         "showtime",
         "mtv",
         "nickelodeon",
         "nick",
         "pluto tv",
+        "paramount",
+        "paramount+",
+        "paramount plus",
+        "p+",
     ),
     "Sony": (
         "sony",
@@ -135,7 +137,7 @@ def match_buyers(article: Article, body: str | None = None) -> BuyerMatch:
     for buyer, keywords in BUYER_KEYWORDS.items():
         for kw in keywords:
             # Use regex word-ish match to avoid substring noise (e.g., "max" vs "maxwell")
-            pattern = rf"(?<!\\w){re.escape(kw)}(?!\\w)"
+            pattern = rf"(?<!\w){re.escape(kw)}(?!\w)"
             if (
                 re.search(pattern, title)
                 or re.search(pattern, lead)

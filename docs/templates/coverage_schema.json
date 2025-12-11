@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.com/news-coverage/coverage-article.schema.json",
   "title": "CoverageArticle",
-  "description": "Single news article ready for quarterly coverage. Designed for A24 and Lionsgate; extensible to other buyers.",
+  "description": "Single news article ready for quarterly coverage. Designed for major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD) plus A24 and Lionsgate.",
   "type": "object",
   "required": [
     "company",
@@ -20,7 +20,19 @@
     },
     "company": {
       "type": "string",
-      "enum": ["A24", "Lionsgate", "Unknown"],
+      "enum": [
+        "Amazon",
+        "Apple",
+        "Comcast/NBCU",
+        "Disney",
+        "Netflix",
+        "Paramount",
+        "Sony",
+        "WBD",
+        "A24",
+        "Lionsgate",
+        "Unknown"
+      ],
       "description": "Company/buyer the article is about."
     },
     "company_match_confidence": {

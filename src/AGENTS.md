@@ -21,3 +21,4 @@ Recent changes:
 - Batch summarization helper `_extract_summary_chunks`/`summarize_articles_batch` now fails fast when the model does not emit one summary per article, preventing silent data loss.
 - CLI runs skip duplicate checks automatically for fixtures under `data/samples/debug/`; `ingest_article` also accepts `skip_duplicate=True` when you need to bypass deduping in controlled scenarios.
 - Markdown formatter now outputs three lines (Title, Category, Content) and places the article date (M/D) as the hyperlink to the article URL to match delivery formatting.
+- Company inference now uses the buyer keyword routing list (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate), falling back to `Unknown` when nothing matches.

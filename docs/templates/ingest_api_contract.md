@@ -26,7 +26,7 @@ Base URL: to be configured by the user (e.g., http://localhost:8000). All endpoi
 ### POST /classify (optional)
 - Purpose: return best-guess company/section/subheading/quarter for a URL+body before ingestion.
 - Request body: `{ "url": "...", "title": "...", "body": "...", "published_at": "YYYY-MM-DD" }` (body optional but improves accuracy).
-- Response: `200 OK` with `{ "company": "A24|Lionsgate|Unknown", "company_match_confidence": 0-1, "section": "...", "subheading": "...", "quarter": "YYYY Q#", "quarter_inferred_from": "published_at|title", "classification_notes": "..." }`.
+- Response: `200 OK` with `{ "company": "Amazon|Apple|Comcast/NBCU|Disney|Netflix|Paramount|Sony|WBD|A24|Lionsgate|Unknown", "company_match_confidence": 0-1, "section": "...", "subheading": "...", "quarter": "YYYY Q#", "quarter_inferred_from": "published_at|title", "classification_notes": "..." }`.
 
 ## Storage contract
 - Accepted articles are appended to `data/ingest/{company}/{quarter}.jsonl` in UTF-8 JSONL.
