@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: Arial, sans-serif; min-width: 320px; padding: 12px; }
+      .field { margin-bottom: 8px; }
+      .label { font-weight: bold; display: block; }
+      button { padding: 6px 10px; }
+      #status { margin-top: 8px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="field">
+      <span class="label">Title</span>
+      <div id="title"></div>
+    </div>
+    <div class="field">
+      <span class="label">Source</span>
+      <div id="source"></div>
+    </div>
+    <div class="field">
+      <span class="label">Published</span>
+      <div id="published"></div>
+    </div>
+    <button id="send">Send to ingest</button>
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

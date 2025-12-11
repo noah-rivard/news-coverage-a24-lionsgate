@@ -1,8 +1,10 @@
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { fileURLToPath } from "url";
 
-const root = resolve(new URL(".", import.meta.url).pathname, "..");
+// Use fileURLToPath to avoid double drive letters on Windows (e.g., "C:\\C:\\")
+const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const dist = resolve(root, "dist");
 const src = resolve(root, "src");
 

@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: Arial, sans-serif; padding: 12px; }
+      label { font-weight: bold; }
+      input { width: 100%; padding: 6px; margin-top: 4px; }
+      button { margin-top: 8px; padding: 6px 10px; }
+      #status { margin-top: 8px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <label for="endpoint">Ingest endpoint</label>
+    <input id="endpoint" type="text" placeholder="http://localhost:8000/ingest/article" />
+    <button id="save">Save</button>
+    <div id="status"></div>
+    <script src="options.js"></script>
+  </body>
+</html>

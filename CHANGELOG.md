@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file. This projec
 - Sample output markdown for the three debug fixtures (`docs/sample_outputs.md`) generated with the latest pipeline defaults.
 
 ### Changed
+- Company inference now routes across all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) instead of only A24/Lionsgate; schema/docs/ingest contract updated to reflect the expanded enum.
+- Paramount keyword order now prioritizes `cbs`/network brands before generic `paramount` terms so title hits (e.g., “... at CBS”) register as strong matches instead of being overridden by weaker body-only matches.
 - README cleanup: clarified Chrome extension steps, fixed output format bullet, and pointed ExecPlan references to `.agent/complete/`.
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
 - README documents the DOCX generator and how to invoke it.
@@ -48,6 +50,7 @@ All notable changes to this project will be documented in this file. This projec
 - Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
+- Content-deals formatter now detects real date parentheticals instead of any parentheses, so subtitles/alternate-title parentheses still receive the publish date.
 - Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
 - Summarizer requests omit `temperature` when using `gpt-5-mini`, avoiding API 400 errors.
@@ -56,3 +59,6 @@ All notable changes to this project will be documented in this file. This projec
 - Chrome intake content script now normalizes `published_at` to `YYYY-MM-DD` (trimming datetime meta tags) to satisfy the ingest schema; README and component guide updated accordingly.
 - Chrome intake service worker derives the `quarter` from the article date (falling back to scrape time or current date) instead of hard-coding `2025 Q4`, preventing mis-filed ingest records across quarters.
 - Chrome intake service worker now falls back to the scrape date for `published_at` when the page lacks a publish date, preventing ingest 400s for pages with missing metadata.
+- Buyer keyword routing now applies word-character lookarounds correctly (e.g., `max` no longer matches `maxwell`), reducing false positives when inferring companies; tests cover the regression.
+- Added content-deals routing/formatter to preserve multi-title slate outputs (Dec 11, 2025).
+- Chrome intake build script now resolves paths with `fileURLToPath`, fixing the double-drive-letter failure on Windows when running `npm run build`.

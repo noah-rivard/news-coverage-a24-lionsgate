@@ -78,7 +78,7 @@ Build (requires Node/npm; if scripts are blocked, enable script execution for np
 ```
 cd extensions/chrome-intake
 npm install
-npm run build
+npm run build   # on Windows, use `npm.cmd run build` if PowerShell blocks npm.ps1
 ```
 
 Load in Chrome:
@@ -120,10 +120,24 @@ python -m news_coverage.cli data/samples/debug/variety_wga_netflix_warner_merger
 
 ## Output Format
 
+Markdown output is delivery-ready and follows three lines for single-title articles:
+- Title: <headline>
+- Category: <classifier path with arrows>
+- Content: <leading summary sentence> ([M/D](article_url)) -- the date (month/day) is the hyperlink to the article.
+
+Multi-title content-deal/slate articles (e.g., international greenlights) are formatted one line per title using the content-deals prompt: [Country] Title: Platform, genre (M/D) with M/D taken from the article publish date. If the model adds parentheses for subtitles/alternate titles but no date, the formatter still appends the publish date.
+
+
 Markdown output is delivery-ready and follows three lines:
 - `Title: <headline>`
 - `Category: <classifier path with arrows>`
 - `Content: <leading summary sentence> ([M/D](article_url))` -- the date (month/day) is the hyperlink to the article.
+
+### Company Recognition
+
+- The pipeline now recognizes major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) using keywords in the title, early body text, and URL host, treating keywords as whole words so substrings like "maxwell" do not trigger the WBD keyword `max`.
+- When nothing matches clearly, runs fall back to `Unknown` so a human can decide later.
+
 ## Workflow Pattern (current decision)
 
 - One coordinator (manager model) stays in control and calls specialist helpers as tools: classify (fine-tuned), summarize, format (Markdown), ingest (schema + JSONL storage).
