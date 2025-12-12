@@ -2,6 +2,7 @@
 (() => {
   // src/background.ts
   var DEFAULT_ENDPOINT = "http://localhost:8000/ingest/article";
+  var CONTEXT_MENU_ID = "capture-article";
   function deriveQuarter(publishedAt, scrapedAt) {
     const source = publishedAt || scrapedAt;
     if (source) {
@@ -36,6 +37,23 @@
     });
     return ingestEndpoint || DEFAULT_ENDPOINT;
   }
+  function ensureContextMenu() {
+    chrome.contextMenus.create(
+      {
+        id: CONTEXT_MENU_ID,
+        title: "Capture article for ingest",
+        contexts: ["page", "frame"]
+      },
+      () => {
+        const err = chrome.runtime.lastError;
+        if (err && !err.message.includes("duplicate id")) {
+          console.warn("Failed to create context menu", err.message);
+        }
+      }
+    );
+  }
+  ensureContextMenu();
+  chrome.runtime.onInstalled.addListener(ensureContextMenu);
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "ARTICLE_SCRAPED") {
       const article = {
@@ -94,6 +112,16 @@
       return true;
     }
     return void 0;
+  });
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id) {
+      return;
+    }
+    const frameId = typeof info.frameId === "number" ? info.frameId : 0;
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [frameId] },
+      files: ["contentScript.js"]
+    });
   });
 })();
 //# sourceMappingURL=background.js.map

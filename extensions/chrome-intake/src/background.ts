@@ -1,6 +1,7 @@
 // Service worker: stores the latest scraped article and sends to ingest API.
 
 const DEFAULT_ENDPOINT = "http://localhost:8000/ingest/article";
+const CONTEXT_MENU_ID = "capture-article";
 
 type ArticlePayload = {
   title: string;
@@ -51,6 +52,25 @@ async function getEndpoint(): Promise<string> {
   });
   return ingestEndpoint || DEFAULT_ENDPOINT;
 }
+
+function ensureContextMenu() {
+  chrome.contextMenus.create(
+    {
+      id: CONTEXT_MENU_ID,
+      title: "Capture article for ingest",
+      contexts: ["page", "frame"],
+    },
+    () => {
+      const err = chrome.runtime.lastError;
+      if (err && !err.message.includes("duplicate id")) {
+        console.warn("Failed to create context menu", err.message);
+      }
+    }
+  );
+}
+
+ensureContextMenu();
+chrome.runtime.onInstalled.addListener(ensureContextMenu);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "ARTICLE_SCRAPED") {
@@ -113,4 +133,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return undefined;
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id) {
+    return;
+  }
+
+  const frameId = typeof info.frameId === "number" ? info.frameId : 0;
+  chrome.scripting.executeScript({
+    target: { tabId: tab.id, frameIds: [frameId] },
+    files: ["contentScript.js"],
+  });
 });

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. This projec
 ## [Unreleased]
 
 ### Added
+- Chrome intake extension now exposes a right-click context menu for pages and embedded frames so users can trigger a scrape on the clicked frame; manifest includes the `contextMenus` permission to support it.
 - Component guide for the planning area (`.agent/AGENTS.md`) plus a `complete/` folder for finished ExecPlans.
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - Multi-buyer DOCX generation pipeline: buyer keyword routing (`buyer_routing.py`), coverage/DOCX builders, and CLI command `build-docx` to produce Q4 2025 News Coverage files per buyer plus `needs_review.txt`.

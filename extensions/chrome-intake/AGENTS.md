@@ -8,5 +8,6 @@ Gotchas and expectations:
 - Quarter is derived from the article date (prefers `published_at`, falls back to `scrapedAt`, then the current date) before posting; nothing is hard-coded in the payload.
 - Content script uses `@mozilla/readability`; if a page blocks script injection, reloading may be required.
 - Keep manifest permissions minimal; avoid adding host permissions beyond `<all_urls>` without updating this guide.
+- A context menu item ("Capture article for ingest") is registered for both page and frame right-clicks. It relies on the `contextMenus` permission and re-injects `contentScript.js` into the clicked frame so embedded articles can be scraped on demand.
 - Update README/CHANGELOG when changing build steps, manifest, or permissions.
 - `published_at` must be a `YYYY-MM-DD` date per `coverage_schema.json`; the content script trims any datetime meta tag (e.g., `article:published_time`) down to the date before sending to the service worker. If no publish date is found, the service worker now falls back to the scrape timestamp’s date before sending to ingest to avoid 400s.

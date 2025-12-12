@@ -86,6 +86,7 @@ Load in Chrome:
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
 3) Visit an article page; the content script scrapes it automatically.
 4) Click the extension icon (popup) and press "Send to ingest" to post to the backend.
+5) For embedded articles (inside another page), right-click the article frame and choose "Capture article for ingest" to run the scraper on that frame; then use the popup to send it.
 
 Configure endpoint:
 - In the options page, set the ingest URL (default `http://localhost:8000/ingest/article`).
