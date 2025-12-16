@@ -15,7 +15,7 @@ function loadLatest() {
   chrome.runtime.sendMessage({ type: "GET_LATEST_ARTICLE" }, (resp) => {
     const article = resp?.article;
     if (!article) {
-      setStatus("No article scraped yet. Reload the page.", "red");
+      setStatus("No article scraped yet. Right-click a page or link and choose Capture.", "red");
       return;
     }
     setText("title", article.title || "(untitled)");
@@ -43,4 +43,11 @@ function bindSend() {
 document.addEventListener("DOMContentLoaded", () => {
   loadLatest();
   bindSend();
+});
+
+// Listen for background capture failures (e.g., permission denied) and surface them.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "CAPTURE_FAILED") {
+    setStatus(message.reason || "Capture failed.", "red");
+  }
 });

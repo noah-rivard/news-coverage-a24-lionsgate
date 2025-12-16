@@ -84,14 +84,13 @@ npm run build   # on Windows, use `npm.cmd run build` if PowerShell blocks npm.p
 Load in Chrome:
 1) Open `chrome://extensions/`, enable Developer Mode.
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
-3) Visit an article page; the content script scrapes it automatically.
-4) Click the extension icon (popup) and press "Send to ingest" to post to the backend.
-5) For embedded articles (inside another page), right-click the article frame and choose "Capture article for ingest" to run the scraper on that frame; then use the popup to send it.
+3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically. If Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
+4) After capture, click the extension icon (popup) and press "Send to ingest" to post to the backend.
 
 Configure endpoint:
 - In the options page, set the ingest URL (default `http://localhost:8000/ingest/article`).
 
-Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`.
+Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`. Install-time host permissions are limited to Feedly; other sites are requested at click time. The manifest requests `storage`, `activeTab`, `tabs`, `scripting`, and `contextMenus`; `tabs` is required so link captures can open and close a background tab.
 
 Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date to satisfy `coverage_schema.json`. Example:
 

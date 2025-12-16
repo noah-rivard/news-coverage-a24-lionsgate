@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "News Coverage Intake",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Capture entertainment news articles and send to the ingest API.",
-  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["storage", "activeTab", "tabs", "scripting", "contextMenus"],
+  "host_permissions": ["https://feedly.com/*", "https://*.feedly.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -13,12 +14,5 @@
     "default_popup": "popup.html",
     "default_title": "News Coverage Intake"
   },
-  "options_page": "options.html",
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  "options_page": "options.html"
 }

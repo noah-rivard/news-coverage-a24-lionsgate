@@ -31,6 +31,8 @@ All notable changes to this project will be documented in this file. This projec
 - Sample output markdown for the three debug fixtures (`docs/sample_outputs.md`) generated with the latest pipeline defaults.
 
 ### Changed
+- Chrome intake extension now requests only Feedly hosts at install; other origins are requested at click time. Content script is no longer auto-injected and link captures run in a background tab with a 20s timeout.
+- Popup surfaces capture failures (e.g., permission denied) and guides users to right-click capture when no article is cached.
 - Company inference now routes across all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) instead of only A24/Lionsgate; schema/docs/ingest contract updated to reflect the expanded enum.
 - Paramount keyword order now prioritizes `cbs`/network brands before generic `paramount` terms so title hits (e.g., “... at CBS”) register as strong matches instead of being overridden by weaker body-only matches.
 - README cleanup: clarified Chrome extension steps, fixed output format bullet, and pointed ExecPlan references to `.agent/complete/`.
@@ -51,6 +53,8 @@ All notable changes to this project will be documented in this file. This projec
 - Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
+- Chrome intake capture now requests iframe origins and reports injection failures, restoring right-click scraping of embedded cross-origin articles.
+- Chrome intake manifest now requests the `tabs` permission so background link captures can open/close tabs instead of failing silently.
 - Content-deals formatter now detects real date parentheticals instead of any parentheses, so subtitles/alternate-title parentheses still receive the publish date.
 - Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
