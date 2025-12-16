@@ -63,6 +63,16 @@ curl -X POST http://localhost:8000/ingest/article ^
   -d "{\"company\":\"A24\",\"quarter\":\"2025 Q4\",\"section\":\"Content / Deals / Distribution\",\"subheading\":\"Development\",\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"published_at\":\"2025-12-01\"}"
 ```
 
+Process an article through the full pipeline (classify → summarize → format → ingest) via the new endpoint:
+
+```
+curl -X POST http://localhost:8000/process/article ^
+  -H "Content-Type: application/json" ^
+  -d "{\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"content\":\"Full text of the article...\",\"published_at\":\"2025-12-01\"}"
+```
+
+Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
+
 Environment knobs:
 - `INGEST_DATA_DIR` to change storage root.
 - `INGEST_HOST` / `INGEST_PORT` / `INGEST_RELOAD` for server startup.
@@ -85,14 +95,14 @@ Load in Chrome:
 1) Open `chrome://extensions/`, enable Developer Mode.
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
 3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically. If Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
-4) After capture, click the extension icon (popup) and press "Send to ingest" to post to the backend.
+4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed (or marked duplicate); the "Send" button is a manual retry.
 
 Configure endpoint:
-- In the options page, set the ingest URL (default `http://localhost:8000/ingest/article`).
+- In the options page, set the endpoint URL (default `http://localhost:8000/process/article`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload.
 
 Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`. Install-time host permissions are limited to Feedly; other sites are requested at click time. The manifest requests `storage`, `activeTab`, `tabs`, `scripting`, and `contextMenus`; `tabs` is required so link captures can open and close a background tab.
 
-Payload format: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date to satisfy `coverage_schema.json`. Example:
+Payload format for the default pipeline endpoint: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date so the pipeline can infer the quarter. Example:
 
 ```
 {
@@ -133,6 +143,11 @@ Markdown output is delivery-ready and follows three lines:
 - `Category: <classifier path with arrows>`
 - `Content: <leading summary sentence> ([M/D](article_url))` -- the date (month/day) is the hyperlink to the article.
 
+After a successful, non-duplicate run, the pipeline also appends a delivery-ready
+block (including matched buyers and ISO publish timestamp) to
+`docs/templates/final_output.md`. Set `FINAL_OUTPUT_PATH` to redirect this log
+in tests or other environments.
+The appended content line now hyperlinks the date to the source article.
 ### Company Recognition
 
 - The pipeline now recognizes major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) using keywords in the title, early body text, and URL host, treating keywords as whole words so substrings like "maxwell" do not trigger the WBD keyword `max`.
@@ -164,6 +179,7 @@ Markdown output is delivery-ready and follows three lines:
 - Agents SDK quick reference: `docs/agents_sdk_quickref.md` (links to the authoritative OpenAI docs and notes the patterns we use here).
 - Docs guidelines for contributors: `docs/AGENTS.md`.
 - Debug fixture sample outputs (Title/Category/Content format): `docs/sample_outputs.md`.
+- Final output template showing buyers/date layout: `docs/templates/final_output.md`.
 
 ## Contributing Guidelines for Agents
 

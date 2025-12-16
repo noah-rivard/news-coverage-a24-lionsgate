@@ -18,6 +18,7 @@ from .workflow import (
     SummaryResult,
     build_client,
     classify_article,
+    append_final_output_entry,
     format_markdown,
     ingest_article,
     summarize_article,
@@ -139,6 +140,9 @@ def run_with_agent(
     markdown_text = context.markdown or (
         result.final_output if isinstance(result.final_output, str) else ""
     )
+
+    if not context.ingest.duplicate_of:
+        append_final_output_entry(article, context.classification, context.summary)
 
     return PipelineResult(
         markdown=markdown_text,

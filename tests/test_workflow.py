@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from news_coverage.models import Article
@@ -8,13 +8,15 @@ from news_coverage.workflow import (
     PipelineResult,
     SummaryResult,
     format_markdown,
+    format_final_output_entry,
     process_article,
     summarize_article,
     summarize_articles_batch,
 )
 
 
-def test_process_article_uses_injected_tools(tmp_path):
+def test_process_article_uses_injected_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(tmp_path / "final_output.md"))
     article = Article(
         title="Sample Story",
         source="Demo",
@@ -52,6 +54,37 @@ def test_process_article_uses_injected_tools(tmp_path):
     assert "Point one" in result.markdown
     assert result.classification.company == "A24"
     assert result.ingest.duplicate_of is None
+    logged = (tmp_path / "final_output.md").read_text(encoding="utf-8")
+    assert "Title: Sample Story" in logged
+
+
+def test_format_final_output_entry_includes_buyers_and_iso():
+    article = Article(
+        title="Netflix Chief Product Officer Eunice Kim To Exit",
+        source="Deadline",
+        url=(
+            "https://deadline.com/2025/09/"
+            "netflix-chief-product-officer-eunice-kim-exits-1236528052/"
+        ),
+        content="Netflix is making an exec change.",
+        published_at=datetime(2025, 9, 10, 20, 39, 39, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Org -> Exec Changes",
+        section="Org",
+        subheading="Exec Changes",
+        confidence=0.9,
+        company="Netflix",
+        quarter="2025 Q3",
+    )
+    summary = SummaryResult(bullets=["Exit: Eunice Kim, Chief Product Officer at Netflix"])
+
+    entry = format_final_output_entry(article, classification, summary)
+
+    assert "Matched buyers: ['Netflix']" in entry
+    assert "Category: Org -> Exec Changes" in entry
+    assert "Content: Exit: Eunice Kim, Chief Product Officer at Netflix ([9/10]" in entry
+    assert "Date: (2025-09-10T20:39:39+00:00)" in entry
 
 
 def test_format_markdown_outputs_title_category_and_date_link():

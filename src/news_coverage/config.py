@@ -39,6 +39,14 @@ class Settings(BaseSettings):
         alias="INGEST_DATA_DIR",
         description="Optional override for ingest storage root; defaults to data/ingest.",
     )
+    final_output_path: str | None = Field(
+        None,
+        alias="FINAL_OUTPUT_PATH",
+        description=(
+            "Optional override for the appended final-output markdown file. "
+            "Defaults to docs/templates/final_output.md in the repo root."
+        ),
+    )
 
 
 def get_settings() -> Settings:

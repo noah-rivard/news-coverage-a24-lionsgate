@@ -19,16 +19,21 @@ All notable changes to this project will be documented in this file. This projec
 - CLI now supports single-article runs with optional file output and surfaces duplicate (409-style) responses.
 - Unit tests for the coordinator pipeline; pytest/flake8 kept green.
 - Expanded subheading normalization (Analyst Perspective, IR Conferences, Misc. News) to align classifier output with schema.
+- Pipeline now appends each successful article to `docs/templates/final_output.md` (override with `FINAL_OUTPUT_PATH`) using the matched-buyers format.
+- Backfilled existing ingested articles into `docs/templates/final_output.md` so the log starts with prior runs.
+- Final-output content line now hyperlinks the appended date to the article URL.
 - ExecPlan for the Chrome intake extension and ingest service design (`.agent/in_progress/execplan-chrome-extension.md`), including taxonomy findings from the sample news coverage DOCX files.
 - Canonical coverage payload schema and guide (`docs/templates/coverage_schema.json` and `docs/templates/coverage_schema.md`) for the Chrome extension and backend ingest.
 - Ingest API contract draft (`docs/templates/ingest_api_contract.md`) specifying endpoints, validation, errors, and storage rules aligned to the coverage schema.
 - Python schema loader/validator (`news_coverage.schema`) backed by `jsonschema`, plus tests for valid/invalid payloads.
 - FastAPI ingest service (`news_coverage.server`) with `/health` and `/ingest/article` endpoints using the schema validator, duplicate detection, and JSONL storage; tests cover happy path and duplicate rejection.
+- FastAPI `/process/article` endpoint that runs the manager-agent pipeline (classify → summarize → format → ingest) and returns Markdown plus storage metadata for a single scraped article.
 - Agents SDK quick reference (`docs/agents_sdk_quickref.md`) summarizing how this repo should use the OpenAI Agents SDK.
 - Docs component guide (`docs/AGENTS.md`) to keep documentation updates concise and aligned with code behavior.
 - Component guide for the core workflow/services (`src/news_coverage/AGENTS.md`) noting how injected tools can run offline.
 - Debug fixture set of three Variety articles under `data/samples/debug/` plus a `data/AGENTS.md` guide for managing fixtures.
 - Sample output markdown for the three debug fixtures (`docs/sample_outputs.md`) generated with the latest pipeline defaults.
+- Final output Markdown template with buyer list and ISO timestamp layout (`docs/templates/final_output.md`) and README link.
 
 ### Changed
 - Chrome intake extension now requests only Feedly hosts at install; other origins are requested at click time. Content script is no longer auto-injected and link captures run in a background tab with a 20s timeout.
@@ -36,6 +41,7 @@ All notable changes to this project will be documented in this file. This projec
 - Company inference now routes across all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) instead of only A24/Lionsgate; schema/docs/ingest contract updated to reflect the expanded enum.
 - Paramount keyword order now prioritizes `cbs`/network brands before generic `paramount` terms so title hits (e.g., “... at CBS”) register as strong matches instead of being overridden by weaker body-only matches.
 - README cleanup: clarified Chrome extension steps, fixed output format bullet, and pointed ExecPlan references to `.agent/complete/`.
+- Chrome intake extension now auto-sends each captured article to the configured endpoint (default `/process/article`) and reports status in the popup; options default updated accordingly while keeping `/ingest/article` compatibility.
 - README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
 - README documents the DOCX generator and how to invoke it.
 - CLI defaults to the manager agent path; `--mode direct` retains the legacy direct pipeline.

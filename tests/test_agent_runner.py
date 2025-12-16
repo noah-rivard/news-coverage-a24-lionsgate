@@ -52,6 +52,8 @@ def _make_stubs(tmp_path: Path):
 
 def test_run_with_agent_uses_runner_and_context(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    final_path = tmp_path / "final_output.md"
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(final_path))
     classification, summary, ingest, markdown = _make_stubs(tmp_path)
     runner = FakeRunner(classification, summary, ingest, markdown)
 
@@ -72,10 +74,13 @@ def test_run_with_agent_uses_runner_and_context(monkeypatch, tmp_path):
     starting_agent = runner.calls[0][0]
     assert starting_agent.name == "manager"
     assert len(starting_agent.tools) == 4
+    assert "Title: Sample Story" in final_path.read_text(encoding="utf-8")
 
 
 def test_run_with_agent_respects_skip_duplicate(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    final_path = tmp_path / "final_output.md"
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(final_path))
     classification, summary, ingest, markdown = _make_stubs(tmp_path)
     ingest_dup = IngestResult(stored_path=ingest.stored_path, duplicate_of="existing")
 
@@ -96,6 +101,8 @@ def test_run_with_agent_respects_skip_duplicate(monkeypatch, tmp_path):
 
     result = run_with_agent(article, runner=runner, skip_duplicate=True)
     assert result.ingest.duplicate_of is None
+    first_len = final_path.read_bytes()
 
     result_dup = run_with_agent(article, runner=runner, skip_duplicate=False)
     assert result_dup.ingest.duplicate_of == "existing"
+    assert final_path.read_bytes() == first_len

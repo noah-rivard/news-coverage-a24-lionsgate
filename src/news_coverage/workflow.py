@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 import re
 from typing import Callable, List, Optional
@@ -413,6 +413,96 @@ def _format_date_for_display(dt: date) -> str:
     return f"{dt.month}/{dt.day}"
 
 
+def _format_iso_timestamp(dt: datetime | None) -> str:
+    """Return an ISO 8601 timestamp; assume UTC when naive or missing."""
+    if dt is None:
+        return datetime.now(timezone.utc).isoformat()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    return dt.isoformat()
+
+
+def _final_output_path() -> Path:
+    """
+    Resolve the target markdown file for appended final outputs.
+
+    Defaults to docs/templates/final_output.md at the repo root, but can be
+    overridden via FINAL_OUTPUT_PATH for tests or alternative deployments.
+    """
+    settings = get_settings()
+    if settings.final_output_path:
+        return Path(settings.final_output_path).expanduser().resolve()
+    return Path(__file__).resolve().parents[2] / "docs" / "templates" / "final_output.md"
+
+
+def _ordered_buyers(buyers: set[str]) -> list[str]:
+    """Return buyer names ordered by keyword priority, then alphabetically for extras."""
+    priority = list(BUYER_KEYWORDS.keys())
+    ordered = [b for b in priority if b in buyers]
+    extras = sorted(buyers - set(priority))
+    return ordered + extras
+
+
+def format_final_output_entry(
+    article: Article, classification: ClassificationResult, summary: SummaryResult
+) -> str:
+    """
+    Compose the final-output block used for the markdown log file.
+
+    Mirrors the delivery layout the user requested, with matched buyers,
+    category path, first summary bullet plus M/D parenthetical, ISO timestamp,
+    and the source URL.
+    """
+    matches = match_buyers(article)
+    buyer_set = set(matches.strong) | set(matches.weak)
+    if classification.company and classification.company != "Unknown":
+        buyer_set.add(classification.company)
+    ordered_buyers = _ordered_buyers(buyer_set)
+
+    publish_date = article.published_at.date() if article.published_at else date.today()
+    date_display = _format_date_for_display(publish_date)
+    date_link = f"[{date_display}]({article.url})"
+    content_summary = summary.bullets[0] if summary.bullets else ""
+    if content_summary and not _has_date_parenthetical(content_summary):
+        content_summary = f"{content_summary} ({date_link})"
+
+    iso_timestamp = _format_iso_timestamp(article.published_at)
+    category_display = _format_category_display(classification.category)
+
+    lines = [
+        f"Matched buyers: {ordered_buyers}",
+        "",
+        f"Title: {article.title}",
+        "",
+        f"Category: {category_display}",
+        "",
+        f"Content: {content_summary}",
+        "",
+        f"Date: ({iso_timestamp})",
+        "",
+        f"URL: {article.url}",
+    ]
+    return "\n".join(lines)
+
+
+def append_final_output_entry(
+    article: Article,
+    classification: ClassificationResult,
+    summary: SummaryResult,
+    *,
+    destination: Path | None = None,
+) -> Path:
+    """Append a formatted final-output block to the configured markdown file."""
+    entry = format_final_output_entry(article, classification, summary)
+    target = destination or _final_output_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    needs_spacing = target.exists() and target.read_text(encoding="utf-8").strip()
+    spacer = "\n\n" if needs_spacing else ""
+    with target.open("a", encoding="utf-8") as f:
+        f.write(f"{spacer}{entry}\n")
+    return target
+
+
 def _has_date_parenthetical(text: str) -> bool:
     """Return True when the string already contains a date in parenthesis (M/D[/YY])."""
 
@@ -625,6 +715,9 @@ def process_article(
     summary = summarizer_fn(article, prompt_name, client)
     markdown = active_formatter(article, classification, summary)
     ingest_result = ingest_fn(article, classification, summary)
+
+    if not ingest_result.duplicate_of:
+        append_final_output_entry(article, classification, summary)
 
     return PipelineResult(
         markdown=markdown,
