@@ -22,5 +22,7 @@ Recent changes:
 - Batch summarization helper `_extract_summary_chunks`/`summarize_articles_batch` now fails fast when the model does not emit one summary per article, preventing silent data loss.
 - CLI runs skip duplicate checks automatically for fixtures under `data/samples/debug/`; `ingest_article` also accepts `skip_duplicate=True` when you need to bypass deduping in controlled scenarios.
 - Markdown formatter now outputs three lines (Title, Category, Content) and places the article date (M/D) as the hyperlink to the article URL to match delivery formatting.
+- Markdown formatter now preserves all summary bullets (each gains the date link only when missing), preventing multi-title stories from collapsing to a single line.
+- Category display keeps the top-level bucket as `Content, Deals, Distribution` (commas) even when arrow-splitting deeper paths, e.g., `Content, Deals, Distribution -> Sports -> General News & Strategy`.
 - Company inference now uses the buyer keyword routing list (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate), falling back to `Unknown` when nothing matches.
-- After a successful, non-duplicate ingest the pipeline appends the formatted final-output block (with matched buyers and ISO timestamp) to `docs/templates/final_output.md`; override via `FINAL_OUTPUT_PATH` for tests or alternate destinations.
+- After a successful, non-duplicate ingest the pipeline appends the formatted final-output block (with matched buyers and ISO timestamp) to `docs/templates/final_output.md`; override via `FINAL_OUTPUT_PATH` for tests or alternate destinations. The content section now retains all summary bullets (each with date parentheticals added when missing) instead of keeping only the first line.

@@ -7,6 +7,7 @@ from news_coverage.workflow import (
     IngestResult,
     PipelineResult,
     SummaryResult,
+    append_final_output_entry,
     format_markdown,
     format_final_output_entry,
     process_article,
@@ -87,6 +88,37 @@ def test_format_final_output_entry_includes_buyers_and_iso():
     assert "Date: (2025-09-10T20:39:39+00:00)" in entry
 
 
+def test_format_final_output_entry_keeps_all_summary_bullets():
+    article = Article(
+        title="HGTV Orders Three Shows",
+        source="Deadline",
+        url="https://deadline.com/2025/12/hgtv-wild-vacation-rentals-123456/",
+        content="HGTV orders multiple series.",
+        published_at=datetime(2025, 12, 16, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> TV -> Greenlights",
+        section="Content / Deals / Distribution",
+        subheading="Greenlights",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=[
+            "Wild Vacation Rentals: HGTV, travel/reality",
+            "Zillow Gone Wild S3: HGTV, real estate/reality",
+            "Castle Impossible S2: HGTV, home renovation/reality",
+        ]
+    )
+
+    entry = format_final_output_entry(article, classification, summary)
+
+    assert "Wild Vacation Rentals: HGTV, travel/reality ([12/16]" in entry
+    assert "Zillow Gone Wild S3: HGTV, real estate/reality ([12/16]" in entry
+    assert "Castle Impossible S2: HGTV, home renovation/reality ([12/16]" in entry
+
+
 def test_format_markdown_outputs_title_category_and_date_link():
     article = Article(
         title="Sample Story",
@@ -108,8 +140,79 @@ def test_format_markdown_outputs_title_category_and_date_link():
     markdown = format_markdown(article, classification, summary)
 
     assert "Title: Sample Story" in markdown
-    assert "Category: Content -> Deals -> Distribution -> TV -> Development" in markdown
+    assert "Category: Content, Deals, Distribution -> TV -> Development" in markdown
     assert "Content: Key takeaway sentence. ([12/5](https://example.com/story))" in markdown
+
+
+def test_format_markdown_keeps_multiple_summary_lines_without_dup_date():
+    article = Article(
+        title="HGTV Orders Shows",
+        source="Deadline",
+        url=(
+            "https://deadline.com/2025/12/"
+            "hgtv-wild-vacation-rentals-zillow-gone-wild-castle-impossible-1236649382/"
+        ),
+        content="HGTV orders multiple shows.",
+        published_at=datetime(2025, 12, 16),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> TV -> Greenlights",
+        section="Content / Deals / Distribution",
+        subheading="Greenlights",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=[
+            "Wild Vacation Rentals: HGTV, travel/reality (12/16)",
+            "Zillow Gone Wild S3: HGTV, real estate/reality (12/16)",
+        ]
+    )
+
+    markdown = format_markdown(article, classification, summary)
+
+    assert "Content: Wild Vacation Rentals: HGTV, travel/reality (12/16)" in markdown
+    assert "Zillow Gone Wild S3: HGTV, real estate/reality (12/16)" in markdown
+    assert markdown.count("([12/16]") == 0
+
+
+def test_append_final_output_entry_spacer_for_multi_line(tmp_path, monkeypatch):
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(tmp_path / "final_output.md"))
+    article = Article(
+        title="HGTV Orders Shows",
+        source="Deadline",
+        url=(
+            "https://deadline.com/2025/12/"
+            "hgtv-wild-vacation-rentals-zillow-gone-wild-castle-impossible-1236649382/"
+        ),
+        content="HGTV orders multiple shows.",
+        published_at=datetime(2025, 12, 16, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> TV -> Greenlights",
+        section="Content / Deals / Distribution",
+        subheading="Greenlights",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    multi_summary = SummaryResult(
+        bullets=[
+            "Wild Vacation Rentals: HGTV, travel/reality (12/16)",
+            "Zillow Gone Wild S3: HGTV, real estate/reality (12/16)",
+        ]
+    )
+    single_summary = SummaryResult(bullets=["Single line summary"])
+
+    append_final_output_entry(article, classification, multi_summary)
+    append_final_output_entry(article, classification, single_summary)
+
+    text = (tmp_path / "final_output.md").read_text(encoding="utf-8")
+    parts = text.strip("\n").split("Matched buyers")
+    assert len([p for p in parts if p.strip()]) == 2
+    # Between the two entries we expect exactly two newline characters.
+    assert text.count("\n\nMatched buyers") == 1
 
 
 def test_parse_category_normalizes_ir_conference(monkeypatch):

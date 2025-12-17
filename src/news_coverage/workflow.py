@@ -131,11 +131,11 @@ def _normalize_highlights(section: str) -> str:
 
 def _format_category_display(category_path: str) -> str:
     """
-    Render the classifier category path using arrows and friendly splits.
+    Render the classifier category path for display.
 
     Examples:
     - "Content, Deals & Distribution -> TV -> Development"
-      becomes "Content -> Deals -> Distribution -> TV -> Development"
+      becomes "Content, Deals, Distribution -> TV -> Development"
     - Unknown or empty paths fall back to "General News & Strategy".
     """
     if not category_path:
@@ -145,10 +145,10 @@ def _format_category_display(category_path: str) -> str:
     parts: list[str] = []
     for idx, part in enumerate(raw_parts):
         if idx == 0 and part.startswith("Content, Deals & Distribution"):
-            parts.extend(["Content", "Deals", "Distribution"])
+            parts.append("Content, Deals, Distribution")
             continue
         if part == "Deals & Distribution":
-            parts.extend(["Deals", "Distribution"])
+            parts.append("Deals, Distribution")
             continue
         slash_parts = [p.strip() for p in part.split("/") if p.strip()]
         if len(slash_parts) > 1:
@@ -443,6 +443,21 @@ def _ordered_buyers(buyers: set[str]) -> list[str]:
     return ordered + extras
 
 
+def _format_summary_lines(bullets: list[str], date_link: str) -> list[str]:
+    """Return summary lines, appending the date link when missing a parenthetical."""
+
+    if not bullets:
+        return [""]
+
+    lines: list[str] = []
+    for bullet in bullets:
+        text = bullet.strip()
+        if text and not _has_date_parenthetical(text):
+            text = f"{text} ({date_link})"
+        lines.append(text)
+    return lines
+
+
 def format_final_output_entry(
     article: Article, classification: ClassificationResult, summary: SummaryResult
 ) -> str:
@@ -450,8 +465,8 @@ def format_final_output_entry(
     Compose the final-output block used for the markdown log file.
 
     Mirrors the delivery layout the user requested, with matched buyers,
-    category path, first summary bullet plus M/D parenthetical, ISO timestamp,
-    and the source URL.
+    category path, all summary bullets (each with an M/D parenthetical when
+    missing), ISO timestamp, and the source URL.
     """
     matches = match_buyers(article)
     buyer_set = set(matches.strong) | set(matches.weak)
@@ -462,9 +477,7 @@ def format_final_output_entry(
     publish_date = article.published_at.date() if article.published_at else date.today()
     date_display = _format_date_for_display(publish_date)
     date_link = f"[{date_display}]({article.url})"
-    content_summary = summary.bullets[0] if summary.bullets else ""
-    if content_summary and not _has_date_parenthetical(content_summary):
-        content_summary = f"{content_summary} ({date_link})"
+    content_lines = _format_summary_lines(summary.bullets, date_link)
 
     iso_timestamp = _format_iso_timestamp(article.published_at)
     category_display = _format_category_display(classification.category)
@@ -476,12 +489,20 @@ def format_final_output_entry(
         "",
         f"Category: {category_display}",
         "",
-        f"Content: {content_summary}",
-        "",
-        f"Date: ({iso_timestamp})",
-        "",
-        f"URL: {article.url}",
+        f"Content: {content_lines[0] if content_lines else ''}",
     ]
+
+    if len(content_lines) > 1:
+        lines.extend(content_lines[1:])
+
+    lines.extend(
+        [
+            "",
+            f"Date: ({iso_timestamp})",
+            "",
+            f"URL: {article.url}",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -496,10 +517,14 @@ def append_final_output_entry(
     entry = format_final_output_entry(article, classification, summary)
     target = destination or _final_output_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    needs_spacing = target.exists() and target.read_text(encoding="utf-8").strip()
-    spacer = "\n\n" if needs_spacing else ""
+    existing_text = target.read_text(encoding="utf-8") if target.exists() else ""
+    needs_spacing = bool(existing_text.strip())
+    trailing_newlines = len(existing_text) - len(existing_text.rstrip("\n"))
+    spacer_count = max(0, 2 - trailing_newlines) if needs_spacing else 0
+    spacer = "\n" * spacer_count
+    extra_newline = "\n" if len(summary.bullets) > 1 else ""
     with target.open("a", encoding="utf-8") as f:
-        f.write(f"{spacer}{entry}\n")
+        f.write(f"{spacer}{entry}\n{extra_newline}")
     return target
 
 
@@ -517,13 +542,15 @@ def format_markdown(
     date_value = article.published_at.date() if article.published_at else date.today()
     date_text = _format_date_for_display(date_value)
     date_link = f"[{date_text}]({article.url})"
-    content_summary = summary.bullets[0] if summary.bullets else ""
+    content_lines = _format_summary_lines(summary.bullets, date_link)
 
     lines = [
         f"Title: {article.title}",
         f"Category: {category_display}",
-        f"Content: {content_summary} ({date_link})",
+        f"Content: {content_lines[0] if content_lines else ''}",
     ]
+    if len(content_lines) > 1:
+        lines.extend(content_lines[1:])
     return "\n".join(lines)
 
 

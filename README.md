@@ -135,19 +135,24 @@ Markdown output is delivery-ready and follows three lines for single-title artic
 - Category: <classifier path with arrows>
 - Content: <leading summary sentence> ([M/D](article_url)) -- the date (month/day) is the hyperlink to the article.
 
+If the summarizer emits multiple bullets, the markdown keeps every line (only adding the date hyperlink when a line lacks a date parenthetical) so multi-title stories are not collapsed.
+
 Multi-title content-deal/slate articles (e.g., international greenlights) are formatted one line per title using the content-deals prompt: [Country] Title: Platform, genre (M/D) with M/D taken from the article publish date. If the model adds parentheses for subtitles/alternate titles but no date, the formatter still appends the publish date.
 
 
 Markdown output is delivery-ready and follows three lines:
 - `Title: <headline>`
-- `Category: <classifier path with arrows>`
+- `Category: <classifier path with arrows>` (the top bucket stays as `Content, Deals, Distribution` so you’ll see `Content, Deals, Distribution -> TV -> …`)
 - `Content: <leading summary sentence> ([M/D](article_url))` -- the date (month/day) is the hyperlink to the article.
 
 After a successful, non-duplicate run, the pipeline also appends a delivery-ready
 block (including matched buyers and ISO publish timestamp) to
 `docs/templates/final_output.md`. Set `FINAL_OUTPUT_PATH` to redirect this log
 in tests or other environments.
-The appended content line now hyperlinks the date to the source article.
+The appended content now keeps every summary bullet on its own line and adds the
+date hyperlink when the line lacks a parenthetical, so multi-title announcements
+aren't collapsed to the first bullet. Multi-bullet entries leave a blank line
+before the next log entry for readability.
 ### Company Recognition
 
 - The pipeline now recognizes major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) using keywords in the title, early body text, and URL host, treating keywords as whole words so substrings like "maxwell" do not trigger the WBD keyword `max`.

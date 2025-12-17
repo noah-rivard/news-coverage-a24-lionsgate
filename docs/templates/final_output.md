@@ -24,7 +24,7 @@ Matched buyers: ['A24', 'Lionsgate']
 
 Title: A24 inks new TV deal
 
-Category: Content -> Deals -> Distribution -> TV -> General News & Strategy
+Category: Content, Deals, Distribution -> TV -> General News & Strategy
 
 Content: A24 and Lionsgate have entered into a new television co-production agreement ([1/15](https://example.com/story))
 
@@ -36,7 +36,7 @@ Matched buyers: ['Comcast/NBCU', 'A24']
 
 Title: Mandy Moore to Star in Erotic Thriller 'Teach Me' for Peacock and A24
 
-Category: Content -> Deals -> Distribution -> TV -> Development
+Category: Content, Deals, Distribution -> TV -> Development
 
 Content: Teach Me: Peacock, erotic thriller (12/5)
 
@@ -72,7 +72,7 @@ Matched buyers: ['Netflix']
 
 Title: Netflix Brazil Unveils More Details on Adaptation of Paulo Coelho's "The Pilgrimage," and a New Thriller from Raphael Montes, Brazil's King of Crime
 
-Category: Content -> Deals -> Distribution -> International -> General News & Strategy
+Category: Content, Deals, Distribution -> International -> General News & Strategy
 
 Content: Netflix Brazil announced Vicente Amorim will direct The Pilgrimage, an adaptation of Paulo Coelho’s semi-autobiographical novel, reuniting Amorim with Netflix and Gullane after directing Senna. ([12/9](https://variety.com/2025/tv/global/netflix-brazil-paulo-coelho-raphael-montes-vicente-amorim-1236604817/))
 
@@ -84,7 +84,7 @@ Matched buyers: ['Paramount']
 
 Title: X Mayo Co-Creating With Mike Sikowitz & Poised To Star In TSA Comedy ‘Checkpoint’ In Works At CBS
 
-Category: Content -> Deals -> Distribution -> TV -> Development
+Category: Content, Deals, Distribution -> TV -> Development
 
 Content: Checkpoint: CBS, comedy (12/10)
 
@@ -96,7 +96,7 @@ Matched buyers: ['Netflix']
 
 Title: Mike Epps Sets Fifth Comedy Special With Netflix
 
-Category: Content -> Deals -> Distribution -> Specials -> Greenlights
+Category: Content, Deals, Distribution -> Specials -> Greenlights
 
 Content: Delusional: Netflix, comedy special (12/10)
 
@@ -108,10 +108,38 @@ Matched buyers: ['Paramount']
 
 Title: Christina Aguilera Christmas Special To Air On CBS
 
-Category: Content -> Deals -> Distribution -> Specials -> Greenlights
+Category: Content, Deals, Distribution -> Specials -> Greenlights
 
 Content: Christina Aguilera: Christmas in Paris: CBS, holiday special (12/16)
 
 Date: (2025-12-16T00:00:00+00:00)
 
 URL: https://deadline.com/2025/12/christina-aguilera-christmas-special-cbs-1236650147/
+
+
+Matched buyers: ['Apple', 'Netflix']
+
+Title: Netflix Inks iHeartMedia Deal for Exclusive Video Podcasts
+
+Category: Content, Deals, Distribution -> Sports -> General News & Strategy
+
+Content: Netflix has struck an exclusive global deal to stream video versions of more than 15 iHeartMedia original podcasts beginning with launches in the U.S. in early 2026 and expansion to additional markets thereafter. ([12/16](https://variety.com/2025/digital/news/netflix-iheartmedia-exclusive-video-podcasts-1236609314/))
+
+Date: (2025-12-16T00:00:00+00:00)
+
+URL: https://variety.com/2025/digital/news/netflix-iheartmedia-exclusive-video-podcasts-1236609314/
+
+
+Matched buyers: ['WBD']
+
+Title: 'Wild Vacation Rentals' Ordered To Series At HGTV; 'Zillow Gone Wild' & 'Castle Impossible' Renewed For New Seasons
+
+Category: Content, Deals, Distribution -> TV -> Greenlights
+
+Content: Wild Vacation Rentals: HGTV, travel/reality (12/16)
+Zillow Gone Wild S3: HGTV, real estate/reality (12/16)
+Castle Impossible S2: HGTV, home renovation/reality (12/16)
+
+Date: (2025-12-16T00:00:00+00:00)
+
+URL: https://deadline.com/2025/12/hgtv-wild-vacation-rentals-zillow-gone-wild-castle-impossible-1236649382/

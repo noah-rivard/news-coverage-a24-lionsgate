@@ -59,8 +59,13 @@ All notable changes to this project will be documented in this file. This projec
 - Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
+- Category display now preserves the combined top-level bucket (`Content, Deals, Distribution`) instead of splitting it into separate arrows, preventing mis-ordered paths like `Content -> Deals -> Distribution -> Sports -> …` in final outputs.
 - Chrome intake capture now requests iframe origins and reports injection failures, restoring right-click scraping of embedded cross-origin articles.
 - Chrome intake manifest now requests the `tabs` permission so background link captures can open/close tabs instead of failing silently.
+- Final-output log now keeps all summary bullets (adding date links when missing) instead of truncating to the first bullet, so multi-show announcements are preserved.
+- Markdown formatter now preserves all summary bullets and only adds the date link when missing, preventing multi-line stories from collapsing and avoiding duplicate date parentheses.
+- Backfilled the HGTV multi-show entry in `docs/templates/final_output.md` so all three titles are visible.
+- Final-output appender now inserts a blank line after multi-bullet entries while keeping spacing between entries consistent.
 - Content-deals formatter now detects real date parentheticals instead of any parentheses, so subtitles/alternate-title parentheses still receive the publish date.
 - Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.
 - CLI `--out` JSON output now serializes dataclass results safely (converts `Path` and other non-JSON types), preventing `TypeError` crashes when writing `.json` files.
