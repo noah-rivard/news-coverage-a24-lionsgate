@@ -26,6 +26,7 @@ from .workflow import (
     append_final_output_entry,
     format_markdown,
     ingest_article,
+    normalize_article,
     summarize_article,
     _require_api_key,
     _route_prompt_and_formatter,
@@ -93,6 +94,7 @@ def _format_trace_log(
     instructions: str,
     input_text: str,
     raw_content: str | None,
+    normalization_note: str | None,
     tool_events: list[dict[str, Any]],
     final_output: str,
 ) -> str:
@@ -136,6 +138,13 @@ def _format_trace_log(
         "Article Content",
         raw_content or "",
     ]
+    if normalization_note:
+        lines.extend(
+            [
+                "Normalization",
+                normalization_note,
+            ]
+        )
 
     for event in tool_events:
         tool_name = event.get("tool", "unknown")
@@ -253,7 +262,8 @@ def run_with_agent(
     """
     settings = get_settings()
     sync_client, async_client = _build_clients(client)
-    context = PipelineContext(article=article, client=sync_client)
+    normalized_article, normalization_note = normalize_article(article)
+    context = PipelineContext(article=normalized_article, client=sync_client)
 
     tools = _make_tools(context)
     instructions = (
@@ -296,7 +306,8 @@ def run_with_agent(
             model=settings.manager_model,
             instructions=instructions,
             input_text=input_text,
-            raw_content=context.article.content,
+            raw_content=article.content,
+            normalization_note=normalization_note,
             tool_events=[
                 {
                     "tool": event.get("tool"),
@@ -308,7 +319,8 @@ def run_with_agent(
         )
         _append_trace_log(trace_text, settings.agent_trace_path)
 
-    append_final_output_entry(article, context.classification, context.summary)
+    if not context.ingest.duplicate_of:
+        append_final_output_entry(article, context.classification, context.summary)
 
     return PipelineResult(
         markdown=markdown_text,

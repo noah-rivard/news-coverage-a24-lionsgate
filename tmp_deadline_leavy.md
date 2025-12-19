@@ -1,0 +1,3 @@
+Title: Longtime Zaslav Aide David Leavy Leaving WBD
+Category: Org -> Exec Changes
+Content: Exit: David Leavy, Chief Corporate Affairs Officer at Warner Bros Discovery ([12/18](https://deadline.com/2025/12/david-leavy-wbd-exit-zaslav-cnn-1236652941/)) Leavy, a 25‑year company veteran, will leave at year-end, has no immediate next act and plans to take family time; CEO David Zaslav praised his leadership and long run

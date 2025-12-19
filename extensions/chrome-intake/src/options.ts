@@ -10,7 +10,7 @@ function setStatus(text: string, color = "inherit") {
 
 async function loadSettings() {
   const { ingestEndpoint } = await chrome.storage.sync.get({
-    ingestEndpoint: "http://localhost:8000/process/article",
+    ingestEndpoint: "http://localhost:8000/process/articles",
   });
   if (endpointInput) endpointInput.value = ingestEndpoint;
 }

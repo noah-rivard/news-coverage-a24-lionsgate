@@ -29,9 +29,9 @@ python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json
 
 Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summarizer. The agent path always needs the key because it builds the manager model.
 
-By default summaries do not set an explicit output token cap. Set the environment variable `MAX_TOKENS` to a positive number if you want a cap (raise it if long articles truncate), or set `MAX_TOKENS=0` to remove the cap. If the model hits `max_output_tokens`, the run errors so you can adjust the cap or shorten the article.
+By default summaries do not set an explicit output token cap. Set the environment variable `MAX_TOKENS` to a positive number if you want a cap (raise it if long articles truncate), or set `MAX_TOKENS=0` to remove the cap. If the model hits `max_output_tokens`, the summarizer retries with a truncated article body; if the retry still truncates, the run errors so you can adjust the cap or shorten the article.
 
-Re-running the same URL will create a new ingest entry and a new final output block (the pipeline no longer de-duplicates).
+Re-running the same URL is now idempotent: the ingest step returns `duplicate_of` and skips writing ingest/final-output entries when that URL already exists for the company/quarter.
 
 To process multiple articles in parallel (each article remains a separate run), use the batch command:
 
@@ -84,12 +84,25 @@ curl -X POST http://localhost:8000/process/article ^
 
 Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
 
+Process multiple articles in one request (each article still runs independently):
+
+```
+curl -X POST http://localhost:8000/process/articles ^
+  -H "Content-Type: application/json" ^
+  -d "[{\"title\":\"Example 1\",\"source\":\"Variety\",\"url\":\"https://example.com/1\",\"content\":\"Full text...\",\"published_at\":\"2025-12-01\"},{\"title\":\"Example 2\",\"source\":\"Variety\",\"url\":\"https://example.com/2\",\"content\":\"Full text...\",\"published_at\":\"2025-12-02\"}]"
+```
+
+Optional concurrency control:
+- Query param: `http://localhost:8000/process/articles?concurrency=4`
+- Body wrapper: `{ "concurrency": 4, "articles": [ ... ] }`
+
 Environment knobs:
 - `INGEST_DATA_DIR` to change storage root.
 - `INGEST_HOST` / `INGEST_PORT` / `INGEST_RELOAD` for server startup.
 - `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
 - `CORS_ALLOW_CREDENTIALS` (default true, but forced false when origins are `*` to avoid the wildcard+credentials startup error).
 - `AGENT_TRACE_PATH` to append a plain-text trace log for manager-agent runs (tool calls + outputs + final markdown + raw article content).
+- `OPENAI_AGENTS_DISABLE_TRACING=true` to silence non-fatal Agents SDK tracing export retries (e.g., 503 warnings).
 
 ### Chrome extension scaffold (MV3)
 
@@ -110,7 +123,7 @@ Load in Chrome:
 4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed; the "Send" button is a manual retry.
 
 Configure endpoint:
-- In the options page, set the endpoint URL (default `http://localhost:8000/process/article`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload.
+- In the options page, set the endpoint URL (default `http://localhost:8000/process/articles`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload. When using `/process/articles`, the extension batches any queued captures into one request.
   - Note: the ingest payload now includes a required `facts` array (min 1). The server still accepts legacy `section/subheading` payloads and will synthesize one fact for backward compatibility.
 
 Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`. Install-time host permissions are limited to Feedly; other sites are requested at click time. The manifest requests `storage`, `activeTab`, `tabs`, `scripting`, and `contextMenus`; `tabs` is required so link captures can open and close a background tab.
@@ -171,6 +184,7 @@ hyperlink when it lacks a date parenthetical.
 
 - The pipeline now recognizes major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) using keywords in the title, early body text, and URL host, treating keywords as whole words so substrings like "maxwell" do not trigger the WBD keyword `max`.
 - When nothing matches clearly, runs fall back to `Unknown` so a human can decide later.
+- The final-output "Matched buyers" list includes strong matches (title, lead, or URL host) plus the primary company; body-only mentions are excluded from that display.
 
 ## Workflow Pattern (current decision)
 
@@ -209,7 +223,7 @@ Review `AGENTS.md` before making changes. Key points:
 
 Current ExecPlans
 - Active: `.agent/in_progress/execplan-chrome-extension.md` (extension + ingest design), `.agent/in_progress/execplan-multi-fact-classification-storage.md` (store multiple labeled facts per article), and `.agent/in_progress/execplan-parallel-agent-runs.md` (parallel batch processing).
-- Recently finished and archived to `.agent/complete/`: remove duplicate skipping (`execplan-remove-duplicate-skips.md`), auto-process endpoint & extension auto-send (`execplan-auto-process-endpoint.md`), minimal-permission Feedly capture flow (`execplan-feedly-capture-flow.md`), and multi-title slate routing/formatting (`route-slate-articles.md`).
+- Recently finished and archived to `.agent/complete/`: summarizer retry (`execplan-summarizer-retry.md`), remove duplicate skipping (`execplan-remove-duplicate-skips.md`), auto-process endpoint & extension auto-send (`execplan-auto-process-endpoint.md`), minimal-permission Feedly capture flow (`execplan-feedly-capture-flow.md`), multi-title slate routing/formatting (`route-slate-articles.md`), and batch process endpoint (`execplan-batch-process-endpoint.md`).
 
 ## Roadmap
 

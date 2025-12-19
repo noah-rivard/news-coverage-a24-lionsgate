@@ -1,4 +1,6 @@
 from datetime import datetime
+import json
+from pathlib import Path
 
 from news_coverage.models import Article
 from news_coverage.workflow import _infer_company
@@ -52,3 +54,17 @@ def test_infer_company_ignores_substring_noise():
         content="Soul singer Maxwell previewed tracks from his upcoming record.",
     )
     assert _infer_company(article) == "Unknown"
+
+
+def test_infer_company_prefers_title_subject_over_lead_mentions():
+    payload_path = Path(__file__).resolve().parent / "fixtures" / "deadline_leavy.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    article = Article(
+        title=payload["title"],
+        source=payload["source"],
+        url=payload["url"],
+        content=payload["content"],
+        published_at=datetime.fromisoformat(payload["published_at"]),
+    )
+
+    assert _infer_company(article) == "WBD"

@@ -25,6 +25,23 @@ Base URL: to be configured by the user (e.g., http://localhost:8000). All endpoi
 Legacy compatibility:
 - The server accepts legacy single-category payloads that included top-level `section` and `subheading` (plus optional `summary` / `bullet_points`). When `facts` is missing, the server synthesizes a single `facts[0]` entry and drops the legacy keys before validation.
 
+### POST /process/article
+- Purpose: run the full manager-agent pipeline (classify -> summarize -> format -> ingest) for one scraped article.
+- Request headers: `Content-Type: application/json`.
+- Request body: `{ "title": "...", "source": "...", "url": "...", "content": "...", "published_at": "YYYY-MM-DD or RFC3339 timestamp" }`.
+- Response:
+  - `201 Created` with `{ "status": "processed", "markdown": "...", "stored_path": "...", "duplicate_of": null }`.
+  - `400 Bad Request` for validation errors (missing required fields or invalid `published_at`).
+
+### POST /process/articles
+- Purpose: run the full manager-agent pipeline for multiple articles in one request.
+- Request headers: `Content-Type: application/json`.
+- Request body: either a JSON array of article objects or `{ "articles": [ ... ], "concurrency": 4 }`.
+- Optional query parameter: `concurrency` (integer >= 1) to control parallelism.
+- Response:
+  - `201 Created` when all items succeed, or `207 Multi-Status` when some items fail or are invalid.
+  - Body includes `counts` and a `results` array with `index`, `status` (`processed` | `error` | `invalid`), and per-item metadata (markdown, stored_path, error).
+
 ### POST /classify (optional)
 - Purpose: return best-guess company/section/subheading/quarter for a URL+body before ingestion.
 - Request body: `{ "url": "...", "title": "...", "body": "...", "published_at": "YYYY-MM-DD" }` (body optional but improves accuracy).
@@ -34,7 +51,7 @@ Legacy compatibility:
 - Accepted articles are appended to `data/ingest/{company}/{quarter}.jsonl` in UTF-8 JSONL.
 - Each line must be a full CoverageArticle with server-assigned `id` (UUID v4) and `captured_at` timestamp (UTC ISO).
 - Server must preserve client-supplied `ingest_source` and `ingest_version` for auditing.
-- The server does not de-duplicate; repeated URLs are stored as additional lines.
+- The server de-duplicates by URL per company/quarter. A repeated URL returns `duplicate_of` and does not append a new line.
 
 ## Error model
 - All error responses: `application/json` with `{ "status": "error", "message": "...", "errors?": [ { "field": "...", "issue": "..." } ] }`.

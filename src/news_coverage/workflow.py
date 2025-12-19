@@ -22,16 +22,17 @@ from typing import Callable, List, Optional
 from openai import OpenAI
 
 from .config import get_settings
-from .buyer_routing import BUYER_KEYWORDS, match_buyers
+from .buyer_routing import BUYER_KEYWORDS, match_buyers, score_buyer_matches
 from .file_lock import locked_path
 from .models import Article
 from .schema import validate_article_payload
-from .server import _ensure_parent, _jsonl_path
+from .server import _ensure_parent, _jsonl_contains_url, _jsonl_path
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 _DATE_TEXT_PATTERN = r"(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(\d{2}|\d{4}))?"
 DATE_PAREN_PATTERN = re.compile(rf"\(\s*{_DATE_TEXT_PATTERN}\s*\)")
 DATE_LINK_PAREN_PATTERN = re.compile(rf"\(\s*\[\s*{_DATE_TEXT_PATTERN}\s*\]\(")
+SUMMARY_RETRY_CHAR_LIMITS = (12000, 6000)
 
 
 # --- Data containers -------------------------------------------------------
@@ -96,6 +97,69 @@ def _require_api_key(settings) -> str:
     return settings.openai_api_key
 
 
+_MOJIBAKE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("\u0192?Ts", "'s"),  # "ƒ?Ts" -> "'s"
+    ("\u0192?~s", "'s"),  # "ƒ?~s" -> "'s"
+    ("\u0192?s", "'s"),  # "ƒ?s" -> "'s"
+    ("\u0192?T", "'"),  # "ƒ?T" -> "'"
+    ("\u0192?o", '"'),  # "ƒ?o" -> '"'
+    ("\u0192??", '"'),  # "ƒ??" -> '"'
+    ("\u0192?\u00dd", "--"),  # "ƒ?Ý" -> "--"
+    ("\u00e2\u20ac\u0153", '"'),  # "â€œ" -> '"'
+    ("\u00e2\u20ac\u009d", '"'),  # "â€�" -> '"'
+    ("\u00e2\u20ac\u0099", "'"),  # "â€™" -> "'"
+    ("\u00e2\u20ac\u0098", "'"),  # "â€˜" -> "'"
+    ("\u00e2\u20ac\u201d", "--"),  # "â€”" -> "--"
+    ("\u00e2\u20ac\u201c", "-"),  # "â€“" -> "-"
+    ("\u00c2", ""),  # stray "Â"
+)
+
+
+def normalize_article_text(text: str) -> tuple[str, int]:
+    """
+    Normalize common mojibake sequences into ASCII-safe punctuation.
+
+    Returns the normalized text and a count of replacements performed.
+    """
+    if not text:
+        return text, 0
+    normalized = text
+    replacements = 0
+    for raw, cleaned in _MOJIBAKE_REPLACEMENTS:
+        if raw in normalized:
+            replacements += normalized.count(raw)
+            normalized = normalized.replace(raw, cleaned)
+    return normalized, replacements
+
+
+def normalize_article(article: Article) -> tuple[Article, str | None]:
+    """
+    Return an Article with normalized title/content plus a short note for logs.
+    """
+    title, title_replacements = normalize_article_text(article.title or "")
+    content, content_replacements = normalize_article_text(article.content or "")
+    replacements = title_replacements + content_replacements
+    if replacements == 0 and title == article.title and content == article.content:
+        return article, None
+    length_delta = (len(title) - len(article.title)) + (len(content) - len(article.content))
+    fields = []
+    if title != article.title:
+        fields.append("title")
+    if content != article.content:
+        fields.append("content")
+    note = (
+        "Normalization: applied; fields={fields}; replacements={count}; length_delta={delta}"
+    ).format(fields=",".join(fields), count=replacements, delta=length_delta)
+    normalized_article = Article(
+        title=title,
+        source=article.source,
+        url=article.url,
+        published_at=article.published_at,
+        content=content,
+    )
+    return normalized_article, note
+
+
 def _infer_quarter(published_at: datetime) -> str:
     q = (published_at.month - 1) // 3 + 1
     return f"{published_at.year} Q{q}"
@@ -105,21 +169,23 @@ def _infer_company(article: Article) -> str:
     """
     Infer the primary buyer/company from the article using keyword routing.
 
-    Strong matches come from the title, URL host, or the first ~400 chars of
-    the body; weak matches come from the rest of the body. We pick the first
-    match according to the BUYER_KEYWORDS priority order; fall back to Unknown.
+    Prefer matches in the title or lead over deeper body-only mentions,
+    using buyer keyword priority only as a tie-breaker.
     """
-
+    scores = score_buyer_matches(article)
+    if not scores:
+        return "Unknown"
     priority = list(BUYER_KEYWORDS.keys())
-    matches = match_buyers(article)
-
-    for buyer in priority:
-        if buyer in matches.strong:
-            return buyer
-    for buyer in priority:
-        if buyer in matches.weak:
-            return buyer
-    return "Unknown"
+    priority_index = {buyer: idx for idx, buyer in enumerate(priority)}
+    scores_sorted = sorted(
+        scores,
+        key=lambda score: (
+            -score.score,
+            score.earliest_pos,
+            priority_index.get(score.buyer, 9999),
+        ),
+    )
+    return scores_sorted[0].buyer
 
 
 def _normalize_category(raw: str | dict) -> tuple[str, float | None]:
@@ -253,6 +319,40 @@ def _split_bullets(text: str) -> List[str]:
     return bullets
 
 
+def _apply_exec_change_qualifiers(bullets: List[str], article: Article) -> List[str]:
+    """
+    Ensure exec-change summaries preserve a "former" qualifier when present.
+
+    We only add "former" when the article text explicitly uses it near the name.
+    """
+    if not bullets:
+        return bullets
+    text = f"{article.title}\n{article.content}".lower()
+    updated: List[str] = []
+    pattern = re.compile(
+        r"^(Exit|Promotion|Hiring|New Role):\s+([^,]+),\s+([^()]+)"
+    )
+    for bullet in bullets:
+        if "former" in bullet.lower():
+            updated.append(bullet)
+            continue
+        match = pattern.match(bullet)
+        if not match:
+            updated.append(bullet)
+            continue
+        name = match.group(2).strip().lower()
+        if not name:
+            updated.append(bullet)
+            continue
+        name_pattern = re.escape(name)
+        if re.search(rf"former\s+[^\n]{{0,60}}{name_pattern}", text):
+            prefix, rest = bullet.split(",", 1)
+            rest = rest.lstrip()
+            bullet = f"{prefix}, former {rest}"
+        updated.append(bullet)
+    return updated
+
+
 def _response_text_or_raise(response: object, *, step: str) -> str:
     """Extract response text or raise a clear error when output is missing."""
     text = getattr(response, "output_text", None)
@@ -281,6 +381,14 @@ def _response_text_or_raise(response: object, *, step: str) -> str:
         raise RuntimeError(f"{step} response error: {err}")
 
     raise RuntimeError(f"{step} response missing output text.")
+
+
+def _incomplete_reason(response: object) -> str | None:
+    status = getattr(response, "status", None)
+    if status != "incomplete":
+        return None
+    details = getattr(response, "incomplete_details", None)
+    return getattr(details, "reason", None) if details else None
 
 
 # --- Fact parsing helpers -------------------------------------------------
@@ -484,30 +592,72 @@ def classify_article(article: Article, client: OpenAI) -> ClassificationResult:
     )
 
 
-def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> SummaryResult:
-    settings = get_settings()
-    prompt_text = _load_prompt_file(prompt_name)
-    user_message = (
+def _summarizer_content_limits(text: str | None) -> list[int | None]:
+    limits: list[int | None] = [None]
+    if not text:
+        return limits
+    length = len(text)
+    for limit in SUMMARY_RETRY_CHAR_LIMITS:
+        if length > limit:
+            limits.append(limit)
+    return limits
+
+
+def _truncate_content(text: str, limit: int | None) -> str:
+    if not text or not limit or len(text) <= limit:
+        return text
+    trimmed = text[:limit]
+    if " " in trimmed:
+        trimmed = trimmed.rsplit(" ", 1)[0]
+    return trimmed
+
+
+def _summarizer_user_message(article: Article, content_limit: int | None) -> str:
+    content = article.content or ""
+    if content_limit:
+        content = _truncate_content(content, content_limit)
+    published = article.published_at.isoformat() if article.published_at else "unknown"
+    return (
         f"Title: {article.title}\nSource: {article.source}\n"
-        f"Published: {article.published_at.isoformat() if article.published_at else 'unknown'}\n\n"
-        f"{article.content}"
+        f"Published: {published}\n\n{content}"
     )
+
+
+def _summarizer_request_kwargs(settings, messages: list[dict[str, str]]) -> dict:
     request_kwargs = {
         "model": settings.summarizer_model,
-        "input": [
-            {"role": "system", "content": prompt_text},
-            {"role": "user", "content": user_message},
-        ],
+        "input": messages,
     }
     if settings.max_tokens and settings.max_tokens > 0:
         request_kwargs["max_output_tokens"] = settings.max_tokens
-    # gpt-5-mini rejects the temperature parameter; omit it for compatibility.
     if settings.summarizer_model != "gpt-5-mini":
         request_kwargs["temperature"] = settings.temperature
+    return request_kwargs
 
-    response = client.responses.create(**request_kwargs)
+
+def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> SummaryResult:
+    settings = get_settings()
+    prompt_text = _load_prompt_file(prompt_name)
+    content_limits = _summarizer_content_limits(article.content)
+    response = None
+    for idx, limit in enumerate(content_limits):
+        user_message = _summarizer_user_message(article, limit)
+        request_kwargs = _summarizer_request_kwargs(
+            settings,
+            [
+                {"role": "system", "content": prompt_text},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        response = client.responses.create(**request_kwargs)
+        reason = _incomplete_reason(response)
+        if reason == "max_output_tokens" and idx + 1 < len(content_limits):
+            continue
+        break
     text_output = _response_text_or_raise(response, step="Summarizer")
     bullets = _split_bullets(text_output)
+    if prompt_name == "exec_changes.txt":
+        bullets = _apply_exec_change_qualifiers(bullets, article)
     return SummaryResult(bullets=bullets, facts=[])
 
 
@@ -543,31 +693,49 @@ def summarize_articles_batch(
         "produce bullet points, and label each block as 'Article <n>:'."
     )
 
-    user_sections = []
-    for idx, article in enumerate(articles, start=1):
-        published = article.published_at.isoformat() if article.published_at else "unknown"
-        user_sections.append(
-            f"Article {idx}\nInstructions:\n{prompt_texts[idx - 1]}\n\n"
-            f"Title: {article.title}\nSource: {article.source}\n"
-            f"Published: {published}\n\n{article.content}"
+    max_len = max(len(article.content or "") for article in articles)
+    content_limits = [None]
+    for limit in SUMMARY_RETRY_CHAR_LIMITS:
+        if max_len > limit:
+            content_limits.append(limit)
+
+    response = None
+    for idx, limit in enumerate(content_limits):
+        user_sections = []
+        for article_idx, article in enumerate(articles, start=1):
+            published = article.published_at.isoformat() if article.published_at else "unknown"
+            content = article.content or ""
+            if limit:
+                content = _truncate_content(content, limit)
+            user_sections.append(
+                f"Article {article_idx}\nInstructions:\n{prompt_texts[article_idx - 1]}\n\n"
+                f"Title: {article.title}\nSource: {article.source}\n"
+                f"Published: {published}\n\n{content}"
+            )
+        request_kwargs = _summarizer_request_kwargs(
+            settings,
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "\n\n".join(user_sections)},
+            ],
         )
+        if settings.max_tokens and settings.max_tokens > 0:
+            request_kwargs["max_output_tokens"] = settings.max_tokens * max(1, len(articles))
+        response = client.responses.create(**request_kwargs)
+        reason = _incomplete_reason(response)
+        if reason == "max_output_tokens" and idx + 1 < len(content_limits):
+            continue
+        break
 
-    request_kwargs = {
-        "model": settings.summarizer_model,
-        "input": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "\n\n".join(user_sections)},
-        ],
-    }
-    if settings.max_tokens and settings.max_tokens > 0:
-        request_kwargs["max_output_tokens"] = settings.max_tokens * max(1, len(articles))
-    if settings.summarizer_model != "gpt-5-mini":
-        request_kwargs["temperature"] = settings.temperature
-
-    response = client.responses.create(**request_kwargs)
     text_output = _response_text_or_raise(response, step="Summarizer (batch)")
     chunks = _extract_summary_chunks(text_output, len(articles))
-    return [SummaryResult(bullets=_split_bullets(chunk), facts=[]) for chunk in chunks]
+    summaries: list[SummaryResult] = []
+    for article, prompt_name, chunk in zip(articles, prompt_list, chunks):
+        bullets = _split_bullets(chunk)
+        if prompt_name == "exec_changes.txt":
+            bullets = _apply_exec_change_qualifiers(bullets, article)
+        summaries.append(SummaryResult(bullets=bullets, facts=[]))
+    return summaries
 
 
 def _format_date_for_display(dt: date) -> str:
@@ -652,7 +820,7 @@ def format_final_output_entry(
     when a single fact contains multiple summary bullets.
     """
     matches = match_buyers(article)
-    buyer_set = set(matches.strong) | set(matches.weak)
+    buyer_set = set(matches.strong)
     if classification.company and classification.company != "Unknown":
         buyer_set.add(classification.company)
     ordered_buyers = _ordered_buyers(buyer_set)
@@ -802,12 +970,16 @@ def ingest_article(
     }
     validated = validate_article_payload(schema_payload)
     path = _jsonl_path(validated["company"], validated["quarter"])
+    duplicate_of = None
     with locked_path(path):
         _ensure_parent(path)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(validated, ensure_ascii=False))
-            f.write("\n")
-    return IngestResult(stored_path=path, duplicate_of=None)
+        if _jsonl_contains_url(path, validated["url"]):
+            duplicate_of = validated["url"]
+        else:
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(validated, ensure_ascii=False))
+                f.write("\n")
+    return IngestResult(stored_path=path, duplicate_of=duplicate_of)
 
 
 # --- Coordinator ----------------------------------------------------------
@@ -946,6 +1118,7 @@ def process_article(
     Raises on any failure. Always ingests and appends the result.
     """
     settings = get_settings()
+    article, _ = normalize_article(article)
     classifier_fn = classifier_fn or classify_article
     summarizer_fn = summarizer_fn or summarize_article
     formatter_fn = formatter_fn
@@ -967,7 +1140,8 @@ def process_article(
     markdown = active_formatter(article, classification, summary)
     ingest_result = ingest_fn(article, classification, summary)
 
-    append_final_output_entry(article, classification, summary)
+    if not ingest_result.duplicate_of:
+        append_final_output_entry(article, classification, summary)
 
     return PipelineResult(
         markdown=markdown,

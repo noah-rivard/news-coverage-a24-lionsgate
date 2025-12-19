@@ -69,7 +69,7 @@ def test_ingest_stores_article(tmp_path):
     assert "captured_at" in stored
 
 
-def test_ingest_allows_duplicate_url(tmp_path):
+def test_ingest_skips_duplicate_url(tmp_path):
     client = make_client(tmp_path)
     payload = sample_payload()
     first = client.post("/ingest/article", json=payload)
@@ -78,7 +78,9 @@ def test_ingest_allows_duplicate_url(tmp_path):
     assert second.status_code == 201
     stored_path = Path(first.json()["stored_path"])
     lines = stored_path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2
+    assert len(lines) == 1
+    assert first.json()["duplicate_of"] is None
+    assert second.json()["duplicate_of"] == payload["url"]
 
 
 def test_ingest_accepts_legacy_single_category_payload(tmp_path):
@@ -115,6 +117,19 @@ class _StubResult:
         self.ingest = _StubIngest(path, duplicate_of)
 
 
+class _StubBatchItem:
+    def __init__(self, index: int, article, result, error):
+        self.index = index
+        self.article = article
+        self.result = result
+        self.error = error
+
+
+class _StubBatchResult:
+    def __init__(self, items):
+        self.items = items
+
+
 def _process_payload():
     return {
         "title": "Example",
@@ -123,6 +138,25 @@ def _process_payload():
         "published_at": "2025-01-15",
         "content": "Full text",
     }
+
+
+def _process_payloads():
+    return [
+        {
+            "title": "Example One",
+            "source": "Feedly",
+            "url": "https://example.com/article-1",
+            "published_at": "2025-01-15",
+            "content": "Full text one",
+        },
+        {
+            "title": "Example Two",
+            "source": "Feedly",
+            "url": "https://example.com/article-2",
+            "published_at": "2025-01-16",
+            "content": "Full text two",
+        },
+    ]
 
 
 def test_process_article_runs_pipeline(monkeypatch, tmp_path):
@@ -174,3 +208,57 @@ def test_process_article_rejects_invalid_published_at(monkeypatch, tmp_path):
     resp = client.post("/process/article", json=payload)
     assert resp.status_code == 400
     assert "published_at" in resp.json()["detail"]
+
+
+def test_process_articles_runs_pipeline(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+    payloads = _process_payloads()
+
+    def fake_batch(articles, max_workers=4):
+        assert len(articles) == 2
+        return _StubBatchResult(
+            items=[
+                _StubBatchItem(
+                    0, articles[0], _StubResult(tmp_path / "A24" / "2025 Q1.jsonl"), None
+                ),
+                _StubBatchItem(
+                    1, articles[1], _StubResult(tmp_path / "Netflix" / "2025 Q1.jsonl"), None
+                ),
+            ]
+        )
+
+    monkeypatch.setattr("news_coverage.server._run_articles_pipeline", fake_batch)
+
+    resp = client.post("/process/articles", json=payloads)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["counts"]["processed"] == 2
+    assert data["counts"]["invalid"] == 0
+    assert data["results"][0]["status"] == "processed"
+    assert data["results"][1]["status"] == "processed"
+
+
+def test_process_articles_reports_invalid_payloads(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+    payloads = _process_payloads()
+    payloads[0].pop("content")
+
+    def fake_batch(articles, max_workers=4):
+        assert len(articles) == 1
+        return _StubBatchResult(
+            items=[
+                _StubBatchItem(
+                    0, articles[0], _StubResult(tmp_path / "A24" / "2025 Q1.jsonl"), None
+                )
+            ]
+        )
+
+    monkeypatch.setattr("news_coverage.server._run_articles_pipeline", fake_batch)
+
+    resp = client.post("/process/articles", json=payloads)
+    assert resp.status_code == 207
+    data = resp.json()
+    assert data["counts"]["processed"] == 1
+    assert data["counts"]["invalid"] == 1
+    assert data["results"][0]["status"] == "invalid"
+    assert data["results"][1]["status"] == "processed"

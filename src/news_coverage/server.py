@@ -7,9 +7,9 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Body, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -59,6 +59,28 @@ def _jsonl_path(company: str, quarter: str) -> Path:
     return root / company / f"{quarter}.jsonl"
 
 
+def _jsonl_contains_url(path: Path, url: str) -> bool:
+    """Return True when the JSONL file already contains an entry for the URL."""
+    if not path.exists():
+        return False
+
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(record.get("url")) == url:
+                    return True
+    except FileNotFoundError:
+        return False
+
+    return False
+
+
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +92,18 @@ def _run_article_pipeline(article: Article):
     from .agent_runner import run_with_agent
 
     return run_with_agent(article)
+
+
+def _run_articles_pipeline(
+    articles: list[Article],
+    max_workers: int = 4,
+):
+    """
+    Lazy import wrapper for batch manager-agent runs.
+    """
+    from .agent_runner import run_with_agent_batch
+
+    return run_with_agent_batch(articles, max_workers=max_workers)
 
 
 def _normalize_article_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,6 +121,44 @@ def _normalize_article_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if missing:
         raise ValueError(f"Missing required fields: {', '.join(missing)}")
     return data
+
+
+def _extract_article_payloads(payload: Any) -> list[Dict[str, Any]]:
+    """
+    Accept either a JSON array of article objects or an object with an `articles` list.
+    """
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if "articles" in payload:
+            articles = payload.get("articles")
+            if not isinstance(articles, list):
+                raise ValueError("articles must be a list of objects.")
+            return articles
+    raise ValueError(
+        "Request body must be a JSON array of articles or an object with an 'articles' list."
+    )
+
+
+def _parse_articles_payload(
+    payloads: Iterable[Any],
+) -> tuple[list[tuple[int, Article]], list[dict[str, Any]]]:
+    """
+    Validate multiple article payloads, returning (valid, errors).
+    """
+    valid: list[tuple[int, Article]] = []
+    errors: list[dict[str, Any]] = []
+    for idx, raw in enumerate(payloads):
+        try:
+            if not isinstance(raw, dict):
+                raise ValueError("Each article must be a JSON object.")
+            normalized = _normalize_article_payload(raw)
+            published = _parse_published_at(normalized.get("published_at"))
+            normalized["published_at"] = published
+            valid.append((idx, Article(**normalized)))
+        except Exception as exc:
+            errors.append({"index": idx, "error": str(exc)})
+    return valid, errors
 
 
 def _normalize_ingest_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -212,17 +284,22 @@ def ingest_article(payload: Dict[str, Any]) -> JSONResponse:
     )
 
     path = _jsonl_path(validated["company"], validated["quarter"])
+    duplicate_of = None
     with locked_path(path):
         _ensure_parent(path)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(validated, ensure_ascii=False))
-            f.write("\n")
+        if _jsonl_contains_url(path, validated["url"]):
+            duplicate_of = validated["url"]
+        else:
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(validated, ensure_ascii=False))
+                f.write("\n")
 
     body = {
-        "status": "stored",
+        "status": "duplicate" if duplicate_of else "stored",
         "id": validated["id"],
         "stored_path": str(path),
         "normalized_quarter": validated["quarter"],
+        "duplicate_of": duplicate_of,
     }
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
 
@@ -264,6 +341,119 @@ def process_article(
         "duplicate_of": getattr(result.ingest, "duplicate_of", None),
     }
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
+
+
+@app.post("/process/articles", status_code=status.HTTP_201_CREATED)
+def process_articles(
+    payload: Any = Body(...),
+    concurrency: int | None = None,
+) -> JSONResponse:
+    """
+    End-to-end batch processing endpoint: classify -> summarize -> format -> ingest
+    for each article.
+    Accepts a JSON array of article objects or `{ "articles": [...] }`.
+    """
+    try:
+        article_payloads = _extract_article_payloads(payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    if concurrency is None and isinstance(payload, dict):
+        body_concurrency = payload.get("concurrency")
+        if body_concurrency is not None:
+            try:
+                concurrency = int(body_concurrency)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="concurrency must be an integer >= 1.",
+                ) from exc
+
+    if concurrency is None:
+        concurrency = 4
+    if concurrency < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="concurrency must be >= 1.",
+        )
+
+    indexed_articles, errors = _parse_articles_payload(article_payloads)
+    if not indexed_articles:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "status": "error",
+                "message": "No valid articles found.",
+                "errors": errors,
+            },
+        )
+
+    try:
+        batch = _run_articles_pipeline(
+            [article for _, article in indexed_articles],
+            max_workers=concurrency,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+    results: list[dict[str, Any]] = []
+    processed_count = 0
+    failed_count = 0
+
+    for item in batch.items:
+        original_index = indexed_articles[item.index][0]
+        if item.error:
+            failed_count += 1
+            results.append(
+                {"index": original_index, "status": "error", "error": item.error}
+            )
+            continue
+
+        processed_count += 1
+        results.append(
+            {
+                "index": original_index,
+                "status": "processed",
+                "markdown": item.result.markdown,
+                "stored_path": str(item.result.ingest.stored_path),
+                "duplicate_of": getattr(item.result.ingest, "duplicate_of", None),
+            }
+        )
+
+    for error in errors:
+        results.append(
+            {
+                "index": error["index"],
+                "status": "invalid",
+                "error": error["error"],
+            }
+        )
+
+    results.sort(key=lambda item: item["index"])
+    body = {
+        "status": "processed",
+        "counts": {
+            "total": len(article_payloads),
+            "processed": processed_count,
+            "failed": failed_count,
+            "invalid": len(errors),
+        },
+        "results": results,
+    }
+    response_status = (
+        status.HTTP_201_CREATED
+        if failed_count == 0 and not errors
+        else status.HTTP_207_MULTI_STATUS
+    )
+    return JSONResponse(status_code=response_status, content=body)
 
 
 if __name__ == "__main__":

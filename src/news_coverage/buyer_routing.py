@@ -107,6 +107,16 @@ class BuyerMatch:
     weak: Set[str]
 
 
+@dataclass(frozen=True)
+class BuyerScore:
+    """Best match score and location for a buyer within an article."""
+
+    buyer: str
+    score: int
+    earliest_pos: int
+    matched_in: str
+
+
 def _lower(text: str) -> str:
     return text.lower()
 
@@ -152,6 +162,59 @@ def match_buyers(article: Article, body: str | None = None) -> BuyerMatch:
     # Remove duplicates in weak that are strong
     weak -= strong
     return BuyerMatch(strong=strong, weak=weak)
+
+
+def _first_match_pos(pattern: str, text: str) -> int | None:
+    """Return the first match position or None if not found."""
+    match = re.search(pattern, text)
+    return match.start() if match else None
+
+
+def score_buyer_matches(article: Article, body: str | None = None) -> list[BuyerScore]:
+    """
+    Return best match scores per buyer, favoring earlier and stronger placements.
+
+    Title matches outrank lead matches, which outrank URL host, which outrank body.
+    Within a given location, earlier positions score higher.
+    """
+    title = _lower(article.title)
+    url_host = _host_from_url(str(article.url))
+    body_text = _lower(body or article.content or "")
+    lead = body_text[:400]
+
+    # Weighted bases keep title/lead ahead of deeper-body mentions.
+    location_weights = (
+        ("title", title, 3000),
+        ("lead", lead, 2000),
+        ("url", url_host, 1500),
+        ("body", body_text, 1000),
+    )
+
+    scores: list[BuyerScore] = []
+    for buyer, keywords in BUYER_KEYWORDS.items():
+        best: BuyerScore | None = None
+        for kw in keywords:
+            pattern = rf"(?<!\w){re.escape(kw)}(?!\w)"
+            for location, text, base in location_weights:
+                pos = _first_match_pos(pattern, text)
+                if pos is None:
+                    continue
+                score = max(0, base - pos)
+                candidate = BuyerScore(
+                    buyer=buyer, score=score, earliest_pos=pos, matched_in=location
+                )
+                if (
+                    best is None
+                    or candidate.score > best.score
+                    or (
+                        candidate.score == best.score
+                        and candidate.earliest_pos < best.earliest_pos
+                    )
+                ):
+                    best = candidate
+        if best is not None:
+            scores.append(best)
+    return scores
 
 
 def buyers_from_keywords(text: str) -> Set[str]:

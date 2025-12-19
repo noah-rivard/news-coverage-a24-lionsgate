@@ -151,7 +151,7 @@
     },
     "duplicate_of": {
       "type": "string",
-      "description": "Reserved for future de-duplication; not populated by the ingest service."
+      "description": "URL of the existing record when the ingest step skipped a duplicate for the same company/quarter."
     },
     "facts": {
       "type": "array",

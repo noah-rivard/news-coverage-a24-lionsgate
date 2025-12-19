@@ -5,6 +5,7 @@
 - Ingest writes JSONL files under `data/ingest/{company}/{quarter}.jsonl` after schema validation; keep file paths stable so Chrome extension/back-end stay in sync.
 - Ingest does not de-duplicate; repeated URLs are stored again and will produce additional final-output entries.
 - Summarizer calls skip the `temperature` parameter when `SUMMARIZER_MODEL` is `gpt-5-mini` (model rejects it).
+- Summarizer retries once with a truncated article body when the Responses API returns `max_output_tokens`; it still raises if the retry truncates.
 - Prompt/formatter routing is declarative (`ROUTING_RULES` in `workflow.py`), matching category substrings to prompt files; if the classifier confidence is below `routing_confidence_floor` (default 0.5), the coordinator falls back to `general_news.txt` to stay safe.
 - Batch summarization helper (`summarize_articles_batch` + `_extract_summary_chunks`) accepts one prompt per article and raises when the model returns fewer chunks than articles to avoid silent drops.
 - Prompt templates live in `src/prompts/`; keep `workflow.PROMPTS_DIR` aligned if relocating.
@@ -14,7 +15,11 @@
 - Update this guide whenever workflow behavior, storage paths, or tool signatures change so downstream services and tests remain aligned.
 - Multi-title content deals (international slates) now route to `content_deals.txt` and use the `format_content_deals` formatter, which preserves multiple titles and ensures any date marker is hyperlinked to the article URL (it appends the publish date when missing and ignores unrelated parentheses such as subtitles).
 - Ingest server CORS: `CORS_ALLOW_ALL` defaults to true; if origins resolve to `*` we automatically disable credentials to satisfy Starlette's wildcard+credentials restriction. To permit credentials, set explicit origins via `CORS_ALLOW_ORIGINS` and leave `CORS_ALLOW_CREDENTIALS=true` (default).
+- The FastAPI server exposes `/process/article` for single-article runs and `/process/articles` for batch runs; the batch endpoint accepts a JSON array or `{ "articles": [...] }`, supports a `concurrency` value, and returns per-item status plus counts.
 - Multi-buyer DOCX generation is handled via `coverage_builder.py` and `docx_builder.py`, invoked through `python -m news_coverage.cli build-docx`. It relies on keyword-based buyer routing (`buyer_routing.py`) and writes outputs to `docs/samples/news_coverage_docx/`; keep these paths and rules in sync with README/CHANGELOG.
 - Buyer routing regexes use word-character lookarounds (`(?<!\\w)` / `(?!\\w)`) to avoid substring matches (e.g., "max" should not match "maxwell"); keep lookarounds intact when editing keyword logic.
+- Company inference now uses position-aware scoring to prefer title/lead matches over body-only mentions; buyer priority breaks ties.
+- Final-output "Matched buyers" display now uses strong matches (title/lead/URL host) plus the primary company, excluding body-only mentions from that list.
+- Article title/content are normalized for common mojibake before classification and summarization, with a brief note recorded in agent traces when enabled.
 - Manager-agent runs can append a plain-text trace log when `AGENT_TRACE_PATH` is set (or the CLI `--trace`/`--trace-path` flags); the log captures raw article content, tool calls/outputs, and the final markdown to help debug truncation issues.
 - JSONL ingest writes, final-output appends, and trace logs are guarded with process-local file locks so parallel runs do not interleave writes.

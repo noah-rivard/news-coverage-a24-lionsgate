@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 - Chrome intake extension now exposes a right-click context menu for pages and embedded frames so users can trigger a scrape on the clicked frame; manifest includes the `contextMenus` permission to support it.
+- FastAPI `/process/articles` endpoint to process multiple articles in one request with per-item status and optional concurrency controls.
 - Component guide for the planning area (`.agent/AGENTS.md`) plus a `complete/` folder for finished ExecPlans.
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - Batch CLI command to process multiple articles in parallel (`news_coverage.cli batch`) with per-article outputs and configurable concurrency.
@@ -40,8 +41,12 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 - ExecPlan housekeeping: moved auto-process endpoint, Feedly minimal-permission capture flow, and slate-routing ExecPlans to `.agent/complete/`; README now lists active vs. completed plans.
+- ExecPlan housekeeping: archived `execplan-batch-process-endpoint.md` to `.agent/complete/` after adding the batch processing endpoint.
+- Chrome intake extension now defaults to `/process/articles` and batches queued captures when using the batch endpoint; single-article endpoints still work via sequential sends.
+- ExecPlan housekeeping: archived `execplan-summarizer-retry.md` to `.agent/complete/` and updated README pointers.
 - Chrome intake extension now requests only Feedly hosts at install; other origins are requested at click time. Content script is no longer auto-injected and link captures run in a background tab with a 20s timeout.
 - Popup surfaces capture failures (e.g., permission denied) and guides users to right-click capture when no article is cached.
+- Final-output "Matched buyers" display now uses strong matches (title/lead/URL host) plus the primary company, excluding body-only mentions from that list.
 - Company inference now routes across all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) instead of only A24/Lionsgate; schema/docs/ingest contract updated to reflect the expanded enum.
 - Paramount keyword order now prioritizes `cbs`/network brands before generic `paramount` terms so title hits (e.g., "... at CBS") register as strong matches instead of being overridden by weaker body-only matches.
 - Removed duplicate detection across ingest and processing; repeated URLs always append and skip-duplicate flags/query params were removed.
@@ -67,9 +72,11 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 - Summarizer/classifier now raise on incomplete Responses API outputs instead of stringifying the full response into coverage bullets when `max_output_tokens` is hit.
+- Summarizer now retries with a truncated article body when `max_output_tokens` is hit, reducing failures on long articles before raising.
 - Coordinator ingest now synthesizes a fallback fact (from takeaway/bullets/headline) when the summarizer returns no facts, preventing schema validation crashes that previously aborted `/process/article` ingestion.
 - Final-output log now uses the same fallback fact when a summary is empty, so headline-only articles still include a Category/Content block instead of being silently dropped.
 - `/process/article` now correctly parses RFC3339 timestamps with `Z` (and `+0000`-style offsets) for `published_at`, and rejects invalid timestamps with a 400 instead of silently treating them as missing.
+- Ingest now de-duplicates by URL per company/quarter, returning `duplicate_of` and skipping final-output appends instead of writing duplicate records.
 - Category display now preserves the combined top-level bucket (`Content, Deals, Distribution`) instead of splitting it into separate arrows, preventing mis-ordered paths like `Content -> Deals -> Distribution -> Sports -> …` in final outputs.
 - Chrome intake capture now requests iframe origins and reports injection failures, restoring right-click scraping of embedded cross-origin articles.
 - Chrome intake link-capture now reports background-tab timeouts (and uses a longer timeout), avoiding silent no-op runs when a site takes too long to load.
@@ -91,6 +98,10 @@ All notable changes to this project will be documented in this file. This projec
 - Buyer keyword routing now applies word-character lookarounds correctly (e.g., `max` no longer matches `maxwell`), reducing false positives when inferring companies; tests cover the regression.
 - Added content-deals routing/formatter to preserve multi-title slate outputs (Dec 11, 2025).
 - Chrome intake build script now resolves paths with `fileURLToPath`, fixing the double-drive-letter failure on Windows when running `npm run build`.
+- Company inference now scores title/lead matches to avoid misfiling when multiple buyers appear in an article.
+- Added a lightweight company-inference fixture under `tests/fixtures/` so `test_infer_company_prefers_title_subject_over_lead_mentions` runs without relying on temp files.
+- Article text normalization now cleans common mojibake sequences before summarization/formatting and notes normalization in agent traces.
+- Exec-change summaries now preserve "former" qualifiers when the article text explicitly uses them.
 ### Added
 - Multi-fact pipeline: single articles now produce multiple fact entries (with their own category/subheading/company/quarter) inside one record; markdown/final_output blocks list multiple Category/Content pairs in model order; DOCX builder places facts into the correct subheadings without repeating the article header.
 - Coverage schema now requires a `facts` array (min 1) and documents per-fact fields; legacy single-category summary fields are deprecated.

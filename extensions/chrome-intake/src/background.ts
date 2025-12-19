@@ -1,6 +1,6 @@
 // Service worker: stores the latest scraped article and sends to ingest or processing API.
 
-const DEFAULT_ENDPOINT = "http://localhost:8000/process/article";
+const DEFAULT_ENDPOINT = "http://localhost:8000/process/articles";
 const CONTEXT_MENU_ID = "capture-article";
 const CAPTURE_TIMEOUT_MS = 45000; // fail fast if a background tab hangs
 const pendingBackgroundTabs = new Map<number, number>(); // tabId -> timeoutId
@@ -53,6 +53,46 @@ function resolvePublishedDate(publishedAt?: string, scrapedAt?: string): string 
   return undefined;
 }
 
+function buildProcessPayload(article: StoredArticle) {
+  const publishDate = resolvePublishedDate(article.published_at, article.scrapedAt) ||
+    new Date().toISOString().slice(0, 10);
+  return {
+    title: article.title,
+    source: article.source || "Unknown",
+    url: article.url,
+    content: article.content || "",
+    published_at: publishDate,
+  };
+}
+
+function buildIngestPayload(article: StoredArticle) {
+  const publishDate = resolvePublishedDate(article.published_at, article.scrapedAt) ||
+    new Date().toISOString().slice(0, 10);
+  return {
+    company: "Unknown",
+    quarter: deriveQuarter(publishDate, article.scrapedAt),
+    title: article.title,
+    source: article.source || "Unknown",
+    url: article.url,
+    published_at: publishDate,
+    body: article.content || "",
+    ingest_source: "chrome_extension",
+    facts: [
+      {
+        fact_id: "fact-1",
+        category_path: "Strategy & Miscellaneous News -> General News & Strategy",
+        section: "Strategy & Miscellaneous News",
+        subheading: "General News & Strategy",
+        company: "Unknown",
+        quarter: deriveQuarter(publishDate, article.scrapedAt),
+        published_at: publishDate,
+        content_line: article.title,
+        summary_bullets: [article.title],
+      },
+    ],
+  };
+}
+
 async function getEndpoint(): Promise<string> {
   const { ingestEndpoint } = await chrome.storage.sync.get({
     ingestEndpoint: DEFAULT_ENDPOINT,
@@ -60,44 +100,7 @@ async function getEndpoint(): Promise<string> {
   return ingestEndpoint || DEFAULT_ENDPOINT;
 }
 
-async function sendArticle(article: StoredArticle): Promise<SendResult> {
-  const endpoint = await getEndpoint();
-  const publishDate = resolvePublishedDate(article.published_at, article.scrapedAt) ||
-    new Date().toISOString().slice(0, 10);
-  const isIngestEndpoint = endpoint.includes("/ingest/");
-
-  const body = isIngestEndpoint
-    ? {
-        company: "Unknown",
-        quarter: deriveQuarter(publishDate, article.scrapedAt),
-        title: article.title,
-        source: article.source || "Unknown",
-        url: article.url,
-        published_at: publishDate,
-        body: article.content || "",
-        ingest_source: "chrome_extension",
-        facts: [
-          {
-            fact_id: "fact-1",
-            category_path: "Strategy & Miscellaneous News -> General News & Strategy",
-            section: "Strategy & Miscellaneous News",
-            subheading: "General News & Strategy",
-            company: "Unknown",
-            quarter: deriveQuarter(publishDate, article.scrapedAt),
-            published_at: publishDate,
-            content_line: article.title,
-            summary_bullets: [article.title],
-          },
-        ],
-      }
-    : {
-        title: article.title,
-        source: article.source || "Unknown",
-        url: article.url,
-        content: article.content || "",
-        published_at: publishDate,
-      };
-
+async function sendSingle(endpoint: string, body: Record<string, unknown>): Promise<SendResult> {
   try {
     const resp = await fetch(endpoint, {
       method: "POST",
@@ -123,6 +126,122 @@ async function sendArticle(article: StoredArticle): Promise<SendResult> {
   } catch (err: any) {
     return { status: "error", error: err?.message || String(err) };
   }
+}
+
+async function enqueueArticle(article: StoredArticle) {
+  const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
+  const pending = [...stored.pendingArticles, article];
+  await chrome.storage.local.set({ latestArticle: article, pendingArticles: pending });
+  return pending;
+}
+
+async function updatePendingArticles(pending: StoredArticle[]) {
+  await chrome.storage.local.set({ pendingArticles: pending });
+}
+
+async function sendSequential(
+  endpoint: string,
+  pending: StoredArticle[],
+  buildPayload: (article: StoredArticle) => Record<string, unknown>
+): Promise<SendResult> {
+  let processed = 0;
+  const failed: StoredArticle[] = [];
+
+  for (const article of pending) {
+    const result = await sendSingle(endpoint, buildPayload(article));
+    if (result.status === "error") {
+      failed.push(article);
+      continue;
+    }
+    processed += 1;
+  }
+
+  await updatePendingArticles(failed);
+  if (failed.length) {
+    return {
+      status: "error",
+      error: `Processed ${processed}, failed ${failed.length}.`,
+    };
+  }
+  return { status: "ok" };
+}
+
+async function sendProcessBatch(
+  endpoint: string,
+  pending: StoredArticle[]
+): Promise<SendResult> {
+  const body = pending.map((article) => buildProcessPayload(article));
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await resp.text();
+    let parsed: any = undefined;
+    try {
+      parsed = text ? JSON.parse(text) : undefined;
+    } catch {
+      /* ignore parse errors; fallback to raw text */
+    }
+    if (!resp.ok) {
+      const detail = parsed?.detail || text || resp.statusText;
+      return { status: "error", error: detail };
+    }
+
+    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    const failed: StoredArticle[] = [];
+    let processed = 0;
+    let invalid = 0;
+
+    for (const item of results) {
+      const idx = Number(item?.index);
+      if (!Number.isFinite(idx) || idx < 0 || idx >= pending.length) {
+        continue;
+      }
+      const status = item?.status;
+      if (status === "processed" || status === "duplicate") {
+        processed += 1;
+      } else if (status === "invalid") {
+        invalid += 1;
+      } else {
+        failed.push(pending[idx]);
+      }
+    }
+
+    // If the server did not return per-item results, keep the queue intact.
+    if (!results.length) {
+      return { status: "error", error: "Batch response missing per-article results." };
+    }
+
+    await updatePendingArticles(failed);
+    if (failed.length || invalid) {
+      return {
+        status: "error",
+        error: `Processed ${processed}, failed ${failed.length}, invalid ${invalid}.`,
+      };
+    }
+    return { status: "ok" };
+  } catch (err: any) {
+    return { status: "error", error: err?.message || String(err) };
+  }
+}
+
+async function sendPendingArticles(): Promise<SendResult> {
+  const endpoint = await getEndpoint();
+  const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
+  const pending = stored.pendingArticles as StoredArticle[];
+  if (!pending.length) {
+    return { status: "error", error: "No articles queued yet." };
+  }
+
+  if (endpoint.includes("/ingest/")) {
+    return sendSequential(endpoint, pending, buildIngestPayload);
+  }
+  if (endpoint.includes("/process/articles")) {
+    return sendProcessBatch(endpoint, pending);
+  }
+  return sendSequential(endpoint, pending, buildProcessPayload);
 }
 
 async function recordSendResult(result: SendResult) {
@@ -282,7 +401,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ...message.payload,
       scrapedAt: new Date().toISOString(),
     };
-    chrome.storage.local.set({ latestArticle: article });
+    enqueueArticle(article);
 
     // Close background capture tabs immediately on success.
     const tabId = sender?.tab?.id;
@@ -296,7 +415,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Fire-and-forget auto-send to pipeline/ingest.
     if (!sending) {
       sending = true;
-      sendArticle(article)
+      sendPendingArticles()
         .then(recordSendResult)
         .finally(() => {
           sending = false;
@@ -306,20 +425,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "GET_LATEST_ARTICLE") {
-    chrome.storage.local.get(["latestArticle", "lastSendStatus"]).then((data) => {
-      sendResponse({ article: data.latestArticle, sendStatus: data.lastSendStatus });
+    chrome.storage.local.get(["latestArticle", "lastSendStatus", "pendingArticles"]).then((data) => {
+      sendResponse({
+        article: data.latestArticle,
+        sendStatus: data.lastSendStatus,
+        pendingCount: Array.isArray(data.pendingArticles) ? data.pendingArticles.length : 0,
+      });
     });
     return true;
   }
 
   if (message?.type === "SEND_TO_INGEST") {
-    chrome.storage.local.get("latestArticle").then(async (data) => {
-      const article: StoredArticle | undefined = data.latestArticle;
-      if (!article) {
+    chrome.storage.local.get("pendingArticles").then(async (data) => {
+      const pending = Array.isArray(data.pendingArticles) ? data.pendingArticles : [];
+      if (!pending.length) {
         sendResponse({ status: "error", error: "No article scraped yet." });
         return;
       }
-      const result = await sendArticle(article);
+      const result = await sendPendingArticles();
       await recordSendResult(result);
       sendResponse(result);
     });

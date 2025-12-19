@@ -11,6 +11,7 @@ from news_coverage.workflow import (
     append_final_output_entry,
     format_markdown,
     format_final_output_entry,
+    normalize_article_text,
     process_article,
     summarize_article,
     summarize_articles_batch,
@@ -163,6 +164,40 @@ def test_format_final_output_entry_preserves_multi_bullet_fact():
 
     assert "Content:\n- Wild Vacation Rentals: HGTV, travel/reality ([12/16]" in entry
     assert "- Zillow Gone Wild S3: HGTV, real estate/reality ([12/16]" in entry
+
+
+def test_format_final_output_entry_uses_strong_matches_only():
+    filler = " ".join(["filler"] * 120)
+    article = Article(
+        title="Paramount boards 'The Arcane Arts' feature",
+        source="Deadline",
+        url="https://deadline.com/2025/12/arcane-arts-paramount-123456/",
+        content=(
+            "Paramount Pictures is developing The Arcane Arts. "
+            f"{filler} "
+            "The article also references Amazon, Disney, Netflix, and WBD in passing."
+        ),
+        published_at=datetime(2025, 12, 19, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> Film -> Development",
+        section="Content / Deals / Distribution",
+        subheading="Development",
+        confidence=0.9,
+        company="Paramount",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=["The Arcane Arts: Paramount Pictures, fantasy thriller"], facts=[]
+    )
+
+    entry = format_final_output_entry(article, classification, summary)
+
+    assert "Matched buyers: ['Paramount']" in entry
+    assert "Amazon" not in entry
+    assert "Disney" not in entry
+    assert "Netflix" not in entry
+    assert "WBD" not in entry
 
 
 def test_format_final_output_entry_uses_fallback_fact_when_summary_empty():
@@ -343,6 +378,54 @@ def test_append_final_output_entry_spacer_for_multi_line(tmp_path, monkeypatch):
     assert text.count("\n\nMatched buyers") == 1
 
 
+def test_process_article_skips_final_output_on_duplicate(tmp_path, monkeypatch):
+    from news_coverage import workflow
+
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(tmp_path / "final_output.md"))
+    monkeypatch.setenv("INGEST_DATA_DIR", str(tmp_path))
+
+    article = Article(
+        title="Duplicate story",
+        source="Demo",
+        url="https://example.com/dup",
+        content="Body text",
+    )
+
+    def fake_classifier(_article, _client):
+        return ClassificationResult(
+            category="Strategy & Miscellaneous News -> Strategy",
+            section="Strategy & Miscellaneous News",
+            subheading="Strategy",
+            confidence=0.9,
+            company="A24",
+            quarter="2025 Q4",
+        )
+
+    def fake_summarizer(_article, _prompt, _client):
+        return SummaryResult(bullets=["Line"], facts=[])
+
+    def fake_ingest(_article, _classification, _summary):
+        return IngestResult(
+            stored_path=tmp_path / "A24" / "2025 Q4.jsonl",
+            duplicate_of=article.url,
+        )
+
+    def fake_formatter(_article, _classification, _summary):
+        return "Markdown"
+
+    result = workflow.process_article(
+        article,
+        classifier_fn=fake_classifier,
+        summarizer_fn=fake_summarizer,
+        ingest_fn=fake_ingest,
+        formatter_fn=fake_formatter,
+        client=None,
+    )
+
+    assert result.ingest.duplicate_of == article.url
+    assert not (tmp_path / "final_output.md").exists()
+
+
 def test_parse_category_normalizes_ir_conference(monkeypatch):
     from news_coverage import workflow
 
@@ -386,6 +469,47 @@ def test_summarize_article_omits_temperature_for_gpt5mini(monkeypatch):
     assert result.bullets == ["bullet one", "bullet two"]
 
 
+def test_summarize_article_exec_change_preserves_former(monkeypatch):
+    from news_coverage import workflow
+
+    article = Article(
+        title="Longtime Zaslav Aide David Leavy Leaving WBD",
+        source="Deadline",
+        url=(
+            "https://deadline.com/2025/12/"
+            "david-leavy-wbd-exit-zaslav-cnn-1236652941/"
+        ),
+        content="Former CNN COO David Leavy will be leaving WBD at the end of the year.",
+    )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("SUMMARIZER_MODEL", "gpt-5-mini")
+    monkeypatch.setattr(workflow, "_load_prompt_file", lambda _: "Prompt")
+
+    class DummyResponse:
+        output_text = (
+            "Exit: David Leavy, Chief Corporate Affairs Officer at "
+            "Warner Bros. Discovery (12/18)"
+        )
+
+    class DummyResponses:
+        def create(self, **_kwargs):
+            return DummyResponse()
+
+    class DummyClient:
+        responses = DummyResponses()
+
+    result = summarize_article(article, "exec_changes.txt", DummyClient())
+
+    assert (
+        result.bullets[0]
+        == (
+            "Exit: David Leavy, former Chief Corporate Affairs Officer at "
+            "Warner Bros. Discovery (12/18)"
+        )
+    )
+
+
 def test_summarize_article_omits_max_output_tokens_when_disabled(monkeypatch):
     from news_coverage import workflow
 
@@ -419,14 +543,68 @@ def test_summarize_article_omits_max_output_tokens_when_disabled(monkeypatch):
     assert "max_output_tokens" not in captured
 
 
-def test_summarize_article_raises_on_incomplete_response(monkeypatch):
+def test_summarize_article_retries_on_max_output_tokens(monkeypatch):
     from news_coverage import workflow
 
     article = Article(
         title="Sample Story",
         source="Demo",
         url="https://example.com",
-        content="A24 and Lionsgate expand their partnership.",
+        content="A" * 7000,
+    )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("SUMMARIZER_MODEL", "gpt-5-mini")
+    monkeypatch.setattr(workflow, "_load_prompt_file", lambda _: "Prompt")
+
+    class DummyDetails:
+        reason = "max_output_tokens"
+
+    class DummyResponseIncomplete:
+        output_text = ""
+        status = "incomplete"
+        incomplete_details = DummyDetails()
+
+    class DummyResponseOk:
+        output_text = "- bullet one"
+
+    class DummyResponses:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return DummyResponseIncomplete()
+            return DummyResponseOk()
+
+    class DummyClient:
+        def __init__(self):
+            self.responses = DummyResponses()
+
+    client = DummyClient()
+    result = summarize_article(article, "commentary.txt", client)
+
+    assert result.bullets == ["bullet one"]
+    assert client.responses.calls == 2
+
+
+def test_normalize_article_text_replaces_mojibake():
+    raw = "\u0192?oQuoted\u0192?? title\u0192?Ts update"
+    cleaned, replacements = normalize_article_text(raw)
+
+    assert cleaned == "\"Quoted\" title's update"
+    assert replacements == 3
+
+
+def test_summarize_article_raises_after_retry(monkeypatch):
+    from news_coverage import workflow
+
+    article = Article(
+        title="Sample Story",
+        source="Demo",
+        url="https://example.com",
+        content="A" * 7000,
     )
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -442,14 +620,22 @@ def test_summarize_article_raises_on_incomplete_response(monkeypatch):
         incomplete_details = DummyDetails()
 
     class DummyResponses:
+        def __init__(self):
+            self.calls = 0
+
         def create(self, **kwargs):
+            self.calls += 1
             return DummyResponse()
 
     class DummyClient:
-        responses = DummyResponses()
+        def __init__(self):
+            self.responses = DummyResponses()
 
+    client = DummyClient()
     with pytest.raises(RuntimeError, match="max_output_tokens"):
-        summarize_article(article, "commentary.txt", DummyClient())
+        summarize_article(article, "commentary.txt", client)
+
+    assert client.responses.calls == 2
 
 
 def _fake_client(text_output: str):
