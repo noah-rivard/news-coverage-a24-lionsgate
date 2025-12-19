@@ -9,25 +9,36 @@ This schema defines the payload the Chrome extension (and any other intake) must
 - `company_raw`: The literal string matched in the article (useful for imprints or label names).
 - `quarter` (required): Calendar quarter label in `YYYY Q#` form (e.g., `2025 Q1`).
 - `quarter_inferred_from`: `published_at` (default), `title`, or `user_override`.
-- `section` (required): One of `Highlights`, `Org`, `Content / Deals / Distribution`, `Strategy & Miscellaneous News`, `Investor Relations`, `M&A`.
-- `subheading`: One of `General News & Strategy`, `Exec Changes`, `Development`, `Greenlights`, `Pickups`, `Dating`, `Renewals`, `Cancellations`, `Film`, `TV`, `International`, `Sports`, `Podcasts`, `Strategy`, `Quarterly Earnings`, `Company Materials`, `News Coverage`, `None`.
 - `title` (required): Article headline.
 - `dek`: Optional subheadline.
 - `source` (required): Publisher name (Deadline, Variety, etc.).
 - `url` (required): Canonical article URL.
-- `published_at` (required): Publication date `YYYY-MM-DD`.
+- `published_at` (required): Publication date `YYYY-MM-DD` (inherited by all facts).
 - `captured_at`: When the extension grabbed it (ISO date-time).
 - `byline`: Author text.
 - `body`: Plain-text article body (for re-summarization).
-- `summary`: Short summary (manual or model-generated).
-- `bullet_points`: Array of summary bullets if available.
+- `summary` (deprecated): Single-summary text for legacy single-category runs. Prefer `facts[].summary_bullets`.
+- `bullet_points` (deprecated): Single bullet list for legacy single-category runs. Prefer `facts[].summary_bullets`.
 - `tags`, `people`, `works`, `geography`, `language`: Optional metadata for filtering and deduping.
 - `is_highlight_candidate`: Flag to bubble items into the Highlights section.
-- `importance`: `high | medium | low` ordering hint inside a section.
-- `classification_notes`: Free-text notes on why a section/subheading was chosen.
+- `importance`: `high | medium | low` ordering hint.
+- `classification_notes`: Free-text notes on why the article-level classification was chosen.
 - `ingest_source`: `chrome_extension | feedly | manual_upload | test_fixture`.
 - `ingest_version`: Version of the ingest tool/extension.
 - `duplicate_of`: If this is a duplicate, store the original article ID or URL.
+- `facts` (required): Array of fact objects capturing per-fact category and summary. Order is preserved from the model output. Must contain at least one fact.
+
+## Fact fields (inside `facts[]`)
+
+- `fact_id` (required): Stable identifier within the article (e.g., `fact-1`).
+- `category_path` (required): Full classifier-style path with arrows (e.g., `Content, Deals, Distribution -> TV -> Renewals`).
+- `section` (required): One of `Highlights | Org | Content / Deals / Distribution | Strategy & Miscellaneous News | Investor Relations | M&A` derived from `category_path`.
+- `subheading`: One of `General News & Strategy | Exec Changes | Development | Greenlights | Pickups | Dating | Renewals | Cancellations | Film | TV | International | Sports | Podcasts | Strategy | Quarterly Earnings | Company Materials | News Coverage | None`.
+- `company`: Company for this fact; defaults to the article-level company if not provided.
+- `quarter`: Quarter for this fact; defaults to the article-level quarter if not provided.
+- `published_at`: Article publish date (carried through for convenience; no per-fact dating logic).
+- `content_line` (required): Lead line for this fact (used in Category/Content display).
+- `summary_bullets` (required): Bullet list for this fact (first bullet mirrors `content_line`).
 
 ## Quarter inference rules (calendar, not fiscal)
 
@@ -57,8 +68,6 @@ Default: derive from `published_at` in the article's local timezone when availab
   "company_raw": "A24",
   "quarter": "2025 Q1",
   "quarter_inferred_from": "published_at",
-  "section": "Content / Deals / Distribution",
-  "subheading": "General News & Strategy",
   "title": "A24 expands theatrical slate with new genre label",
   "dek": "Indie powerhouse eyes horror-first pipeline",
   "source": "Variety",
@@ -66,7 +75,21 @@ Default: derive from `published_at` in the article's local timezone when availab
   "published_at": "2025-01-15",
   "captured_at": "2025-12-04T23:22:00Z",
   "byline": "Jane Reporter",
-  "summary": "A24 is launching a horror-focused label with three greenlit projects to bolster its 2025 slate while keeping budgets under $15M.",
+  "facts": [
+    {
+      "fact_id": "fact-1",
+      "category_path": "Content, Deals & Distribution -> Film -> Greenlights",
+      "section": "Content / Deals / Distribution",
+      "subheading": "Greenlights",
+      "company": "A24",
+      "quarter": "2025 Q1",
+      "published_at": "2025-01-15",
+      "content_line": "A24 is launching a new horror-focused label with multiple greenlit projects.",
+      "summary_bullets": [
+        "A24 is launching a new horror-focused label with multiple greenlit projects."
+      ]
+    }
+  ],
   "tags": ["horror", "slate", "label"],
   "people": ["Daniel Katz"],
   "works": ["New Horror Project"],

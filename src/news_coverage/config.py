@@ -47,6 +47,14 @@ class Settings(BaseSettings):
             "Defaults to docs/templates/final_output.md in the repo root."
         ),
     )
+    agent_trace_path: str | None = Field(
+        None,
+        alias="AGENT_TRACE_PATH",
+        description=(
+            "Optional path to append a plain-text agent trace log for manager runs. "
+            "Disabled when unset."
+        ),
+    )
 
 
 def get_settings() -> Settings:

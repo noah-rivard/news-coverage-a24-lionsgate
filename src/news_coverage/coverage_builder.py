@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List
 
 from .agent_runner import run_with_agent
 from .buyer_routing import BuyerMatch, match_buyers
 from .docx_builder import BuyerReport, CoverageEntry, build_docx
 from .models import Article
-from .workflow import _parse_category_path
 
 
 @dataclass
@@ -50,14 +50,19 @@ def _infer_medium(category_path: str) -> str:
     return "General"
 
 
-def _build_coverage_entry(
-    article: Article, category_path: str, bullets: Sequence[str]
-) -> CoverageEntry:
-    section, subheading = _parse_category_path(category_path)
-    summary = " ".join(bullets[:3]) if bullets else ""
-    published_at = article.published_at.date() if article.published_at else None
+def _build_coverage_entry(article: Article, fact) -> CoverageEntry:
+    published_at = fact.get("published_at") or (
+        article.published_at.date() if article.published_at else None
+    )
+    if isinstance(published_at, str):
+        published_at = date.fromisoformat(published_at)
     if not published_at:
         raise ValueError("Published date missing.")
+    category_path = fact["category_path"]
+    section = fact["section"]
+    subheading = fact.get("subheading")
+    summary_bullets = fact.get("summary_bullets") or []
+    summary = " ".join(summary_bullets[:3]) if summary_bullets else ""
     medium = _infer_medium(category_path)
     return CoverageEntry(
         title=article.title,
@@ -94,8 +99,15 @@ def build_reports(
     for path in _collect_article_paths(article_paths):
         article = _load_article_file(path)
         run = run_with_agent(article, skip_duplicate=True)
-        category_path = run.classification.category
-        bullets = run.summary.bullets
+        facts = run.summary.facts or [
+            {
+                "category_path": run.classification.category,
+                "section": run.classification.section,
+                "subheading": run.classification.subheading,
+                "published_at": article.published_at.date() if article.published_at else None,
+                "summary_bullets": run.summary.bullets,
+            }
+        ]
 
         match: BuyerMatch = match_buyers(article, body=article.content)
 
@@ -113,36 +125,37 @@ def build_reports(
                 )
             continue
 
-        try:
-            entry = _build_coverage_entry(article, category_path, bullets)
-        except ValueError as exc:
-            targets = match.strong or match.weak or {"Unknown"}
-            for buyer in targets:
+        for fact in facts:
+            try:
+                entry = _build_coverage_entry(article, fact)
+            except ValueError as exc:
+                targets = match.strong or match.weak or {"Unknown"}
+                for buyer in targets:
+                    result.reviews.append(
+                        ReviewItem(
+                            title=article.title,
+                            url=str(article.url),
+                            buyer=buyer,
+                            reason=str(exc),
+                        )
+                    )
+                continue
+
+            # Add to strong matches immediately.
+            for buyer in match.strong:
+                report = result.buyer_reports.setdefault(buyer, BuyerReport(buyer=buyer))
+                report.entries.append(entry)
+
+            # Weak matches logged to review.
+            for buyer in match.weak:
                 result.reviews.append(
                     ReviewItem(
                         title=article.title,
                         url=str(article.url),
                         buyer=buyer,
-                        reason=str(exc),
+                        reason="Weak keyword match; please confirm inclusion.",
                     )
                 )
-            continue
-
-        # Add to strong matches immediately.
-        for buyer in match.strong:
-            report = result.buyer_reports.setdefault(buyer, BuyerReport(buyer=buyer))
-            report.entries.append(entry)
-
-        # Weak matches logged to review.
-        for buyer in match.weak:
-            result.reviews.append(
-                ReviewItem(
-                    title=article.title,
-                    url=str(article.url),
-                    buyer=buyer,
-                    reason="Weak keyword match; please confirm inclusion.",
-                )
-            )
 
     # Render DOCXs
     for buyer, report in result.buyer_reports.items():

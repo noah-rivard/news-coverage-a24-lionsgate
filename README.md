@@ -18,7 +18,7 @@ python -m pip install -e ".[dev]"
 python -m news_coverage.cli path/to/article.json
 ```
 
-Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout.
+Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout. Use `--trace` to append an agent trace log for that run under `docs/traces/` (includes raw article content).
 
 The CLI defaults to the manager agent path (OpenAI Agents SDK). Keep the legacy direct pipeline with `--mode direct`. Examples:
 
@@ -29,7 +29,19 @@ python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json
 
 Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summarizer. The agent path always needs the key because it builds the manager model.
 
-By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long.
+By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long. If the model hits `max_output_tokens`, the run now errors so you can increase the limit instead of logging a raw response blob.
+
+If you need to re-run an article that was already ingested (same URL), use either:
+- `--skip-duplicate-for-url "<exact url>"` (recommended; only bypasses when the payload URL matches)
+- `--skip-duplicate` (bypasses duplicate detection for the whole run)
+
+To process multiple articles in parallel (each article remains a separate run), use the batch command:
+
+```
+python -m news_coverage.cli batch data/my_articles --concurrency 4 --outdir outputs
+```
+
+`--outdir` writes one file per article (named with a numeric prefix plus the input filename). Set `--format json` to write structured JSON outputs instead of Markdown.
 
 Run the new helper to produce Q4 2025 News Coverage DOCX files for each buyer plus a single `needs_review.txt`:
 
@@ -60,7 +72,7 @@ Ingest an article (matches the coverage schema):
 ```
 curl -X POST http://localhost:8000/ingest/article ^
   -H "Content-Type: application/json" ^
-  -d "{\"company\":\"A24\",\"quarter\":\"2025 Q4\",\"section\":\"Content / Deals / Distribution\",\"subheading\":\"Development\",\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"published_at\":\"2025-12-01\"}"
+  -d "{\"company\":\"A24\",\"quarter\":\"2025 Q4\",\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"published_at\":\"2025-12-01\",\"facts\":[{\"fact_id\":\"fact-1\",\"category_path\":\"Strategy & Miscellaneous News -> General News & Strategy\",\"section\":\"Strategy & Miscellaneous News\",\"subheading\":\"General News & Strategy\",\"content_line\":\"Example\",\"summary_bullets\":[\"Example\"]}]}"
 ```
 
 Process an article through the full pipeline (classify → summarize → format → ingest) via the new endpoint:
@@ -73,11 +85,16 @@ curl -X POST http://localhost:8000/process/article ^
 
 Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
 
+To re-run a URL that already exists in storage, pass a query param:
+- `skip_duplicate=true` (bypass for this request), or
+- `skip_duplicate_for_url=<exact url>` (safer; only bypasses when it matches the payload `url`)
+
 Environment knobs:
 - `INGEST_DATA_DIR` to change storage root.
 - `INGEST_HOST` / `INGEST_PORT` / `INGEST_RELOAD` for server startup.
 - `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
 - `CORS_ALLOW_CREDENTIALS` (default true, but forced false when origins are `*` to avoid the wildcard+credentials startup error).
+- `AGENT_TRACE_PATH` to append a plain-text trace log for manager-agent runs (tool calls + outputs + final markdown + raw article content).
 
 ### Chrome extension scaffold (MV3)
 
@@ -94,11 +111,12 @@ npm run build   # on Windows, use `npm.cmd run build` if PowerShell blocks npm.p
 Load in Chrome:
 1) Open `chrome://extensions/`, enable Developer Mode.
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
-3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically. If Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
+3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically; if the background tab hangs or Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
 4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed (or marked duplicate); the "Send" button is a manual retry.
 
 Configure endpoint:
 - In the options page, set the endpoint URL (default `http://localhost:8000/process/article`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload.
+  - Note: the ingest payload now includes a required `facts` array (min 1). The server still accepts legacy `section/subheading` payloads and will synthesize one fact for backward compatibility.
 
 Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`. Install-time host permissions are limited to Feedly; other sites are requested at click time. The manifest requests `storage`, `activeTab`, `tabs`, `scripting`, and `contextMenus`; `tabs` is required so link captures can open and close a background tab.
 
@@ -139,6 +157,7 @@ If the summarizer emits multiple bullets, the markdown keeps every line (only ad
 
 Multi-title content-deal/slate articles (e.g., international greenlights) are formatted one line per title using the content-deals prompt: [Country] Title: Platform, genre (M/D) with M/D taken from the article publish date. If the model adds parentheses for subtitles/alternate titles but no date, the formatter still appends the publish date.
 
+Multi-fact articles (e.g., one greenlight plus multiple renewals) now render as one block per article with repeated Category/Content pairs in model order. The stored JSONL record contains a `facts` array (min 1) with per-fact category/subheading/company/quarter/published_at plus `content_line` and `summary_bullets`. Legacy single-category `section/subheading/summary/bullet_points` are deprecated in favor of `facts`.
 
 Markdown output is delivery-ready and follows three lines:
 - `Title: <headline>`
@@ -149,10 +168,10 @@ After a successful, non-duplicate run, the pipeline also appends a delivery-read
 block (including matched buyers and ISO publish timestamp) to
 `docs/templates/final_output.md`. Set `FINAL_OUTPUT_PATH` to redirect this log
 in tests or other environments.
-The appended content now keeps every summary bullet on its own line and adds the
-date hyperlink when the line lacks a parenthetical, so multi-title announcements
-aren't collapsed to the first bullet. Multi-bullet entries leave a blank line
-before the next log entry for readability.
+In that log, each `Category:` block uses a `Content:` bullet list (even for a
+single item). This keeps every summary bullet while avoiding ambiguous parsing
+when a single fact contains multiple bullets. Each bullet gains the date
+hyperlink when it lacks a date parenthetical.
 ### Company Recognition
 
 - The pipeline now recognizes major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) using keywords in the title, early body text, and URL host, treating keywords as whole words so substrings like "maxwell" do not trigger the WBD keyword `max`.
@@ -192,6 +211,10 @@ Review `AGENTS.md` before making changes. Key points:
 - Run `pytest` and `flake8` after code changes.
 - Update component `AGENTS.md` files when behavior changes.
 - Use ExecPlans for complex work per `.agent/PLANS.md`; place them under `.agent/in_progress/` while active and `.agent/complete/` when finished.
+
+Current ExecPlans
+- Active: `.agent/in_progress/execplan-chrome-extension.md` (extension + ingest design), `.agent/in_progress/execplan-multi-fact-classification-storage.md` (store multiple labeled facts per article), and `.agent/in_progress/execplan-parallel-agent-runs.md` (parallel batch processing).
+- Recently finished and archived to `.agent/complete/`: auto-process endpoint & extension auto-send (`execplan-auto-process-endpoint.md`), minimal-permission Feedly capture flow (`execplan-feedly-capture-flow.md`), and multi-title slate routing/formatting (`route-slate-articles.md`).
 
 ## Roadmap
 

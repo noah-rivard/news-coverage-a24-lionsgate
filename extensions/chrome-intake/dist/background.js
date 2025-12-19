@@ -1,9 +1,11 @@
 "use strict";
 (() => {
   // src/background.ts
-  var DEFAULT_ENDPOINT = "http://localhost:8000/ingest/article";
+  var DEFAULT_ENDPOINT = "http://localhost:8000/process/article";
   var CONTEXT_MENU_ID = "capture-article";
-  var CAPTURE_TIMEOUT_MS = 2e4;
+  var CAPTURE_TIMEOUT_MS = 45e3;
+  var pendingBackgroundTabs = /* @__PURE__ */ new Map();
+  var sending = false;
   function deriveQuarter(publishedAt, scrapedAt) {
     const source = publishedAt || scrapedAt;
     if (source) {
@@ -38,16 +40,75 @@
     });
     return ingestEndpoint || DEFAULT_ENDPOINT;
   }
-  async function ensureHostPermissionForUrl(rawUrl) {
+  async function sendArticle(article) {
+    const endpoint = await getEndpoint();
+    const publishDate = resolvePublishedDate(article.published_at, article.scrapedAt) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const isIngestEndpoint = endpoint.includes("/ingest/");
+    const body = isIngestEndpoint ? {
+      company: "Unknown",
+      quarter: deriveQuarter(publishDate, article.scrapedAt),
+      title: article.title,
+      source: article.source || "Unknown",
+      url: article.url,
+      published_at: publishDate,
+      body: article.content || "",
+      ingest_source: "chrome_extension",
+      facts: [
+        {
+          fact_id: "fact-1",
+          category_path: "Strategy & Miscellaneous News -> General News & Strategy",
+          section: "Strategy & Miscellaneous News",
+          subheading: "General News & Strategy",
+          company: "Unknown",
+          quarter: deriveQuarter(publishDate, article.scrapedAt),
+          published_at: publishDate,
+          content_line: article.title,
+          summary_bullets: [article.title]
+        }
+      ]
+    } : {
+      title: article.title,
+      source: article.source || "Unknown",
+      url: article.url,
+      content: article.content || "",
+      published_at: publishDate
+    };
+    try {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const text = await resp.text();
+      let parsed = void 0;
+      try {
+        parsed = text ? JSON.parse(text) : void 0;
+      } catch {
+      }
+      if (!resp.ok) {
+        const detail = parsed?.detail || text || resp.statusText;
+        return { status: "error", error: detail };
+      }
+      const duplicate_of = parsed?.duplicate_of;
+      if (duplicate_of) {
+        return { status: "duplicate", duplicate_of };
+      }
+      return { status: "ok", duplicate_of };
+    } catch (err) {
+      return { status: "error", error: err?.message || String(err) };
+    }
+  }
+  async function recordSendResult(result) {
+    await chrome.storage.local.set({ lastSendStatus: result });
+    chrome.runtime.sendMessage({ type: "SEND_RESULT", ...result }).catch(() => void 0);
+  }
+  function toOriginPattern(rawUrl) {
     try {
       const u = new URL(rawUrl);
-      const originPattern = `${u.protocol}//${u.host}/*`;
-      const alreadyGranted = await chrome.permissions.contains({ origins: [originPattern] });
-      if (alreadyGranted) return true;
-      return await chrome.permissions.request({ origins: [originPattern] });
-    } catch (err) {
-      console.warn("ensureHostPermissionForUrl: invalid url", rawUrl, err);
-      return false;
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      return `${u.protocol}//${u.host}/*`;
+    } catch {
+      return null;
     }
   }
   function notifyCaptureFailure(reason) {
@@ -74,19 +135,117 @@
   ensureContextMenu();
   chrome.runtime.onInstalled.addListener(ensureContextMenu);
   chrome.runtime.onStartup.addListener(ensureContextMenu);
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id) {
+      return;
+    }
+    const frameUrl = info.frameUrl;
+    const targetUrl = info.linkUrl || frameUrl || info.pageUrl || tab.url;
+    if (!targetUrl) {
+      notifyCaptureFailure("No URL available to capture.");
+      return;
+    }
+    const originPattern = toOriginPattern(targetUrl);
+    if (!originPattern) {
+      notifyCaptureFailure("Unsupported URL scheme.");
+      return;
+    }
+    chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+      if (chrome.runtime.lastError) {
+        console.warn("permissions.request failed:", chrome.runtime.lastError.message);
+        notifyCaptureFailure(chrome.runtime.lastError.message);
+        return;
+      }
+      if (!granted) {
+        notifyCaptureFailure("Site permission was denied.");
+        return;
+      }
+      if (info.linkUrl) {
+        captureInBackgroundTab(info.linkUrl);
+        return;
+      }
+      const frameId = typeof info.frameId === "number" ? info.frameId : void 0;
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: frameId !== void 0 ? [frameId] : void 0 },
+        files: ["contentScript.js"]
+      });
+    });
+  });
+  async function captureInBackgroundTab(url) {
+    const tab = await chrome.tabs.create({ url, active: false });
+    const tabId = tab.id;
+    if (!tabId) return;
+    let listenerRef = null;
+    let finished = false;
+    const finish = async (reason) => {
+      if (finished) return;
+      finished = true;
+      if (reason) {
+        notifyCaptureFailure(reason);
+      }
+      const timeoutId = pendingBackgroundTabs.get(tabId);
+      if (timeoutId) clearTimeout(timeoutId);
+      pendingBackgroundTabs.delete(tabId);
+      if (listenerRef) {
+        chrome.tabs.onUpdated.removeListener(listenerRef);
+      }
+      chrome.tabs.remove(tabId).catch(() => void 0);
+    };
+    const timeout = setTimeout(() => {
+      finish(
+        `Capture timed out after ${Math.round(CAPTURE_TIMEOUT_MS / 1e3)}s. Try capturing from the article page (not a link), or retry.`
+      );
+    }, CAPTURE_TIMEOUT_MS);
+    pendingBackgroundTabs.set(tabId, timeout);
+    const injectAndClose = async () => {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["contentScript.js"]
+        });
+        await finish();
+      } catch (err) {
+        await finish(err?.message ? `Capture failed: ${err.message}` : "Capture failed.");
+      }
+    };
+    const listener = async (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
+      await injectAndClose();
+    };
+    listenerRef = listener;
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((t) => {
+      if (t.status === "complete") {
+        injectAndClose();
+      }
+    });
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "ARTICLE_SCRAPED") {
       const article = {
         ...message.payload,
         scrapedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
       chrome.storage.local.set({ latestArticle: article });
+      const tabId = sender?.tab?.id;
+      if (typeof tabId === "number" && pendingBackgroundTabs.has(tabId)) {
+        const timeoutId = pendingBackgroundTabs.get(tabId);
+        if (timeoutId) clearTimeout(timeoutId);
+        pendingBackgroundTabs.delete(tabId);
+        chrome.tabs.remove(tabId).catch(() => void 0);
+      }
       sendResponse({ status: "stored" });
+      if (!sending) {
+        sending = true;
+        sendArticle(article).then(recordSendResult).finally(() => {
+          sending = false;
+        });
+      }
       return true;
     }
     if (message?.type === "GET_LATEST_ARTICLE") {
-      chrome.storage.local.get("latestArticle").then((data) => {
-        sendResponse({ article: data.latestArticle });
+      chrome.storage.local.get(["latestArticle", "lastSendStatus"]).then((data) => {
+        sendResponse({ article: data.latestArticle, sendStatus: data.lastSendStatus });
       });
       return true;
     }
@@ -97,112 +256,13 @@
           sendResponse({ status: "error", error: "No article scraped yet." });
           return;
         }
-        const endpoint = await getEndpoint();
-        try {
-          const body = {
-            company: "Unknown",
-            quarter: deriveQuarter(article.published_at, article.scrapedAt),
-            section: "Strategy & Miscellaneous News",
-            subheading: "General News & Strategy",
-            title: article.title,
-            source: article.source || "Unknown",
-            url: article.url,
-            published_at: resolvePublishedDate(article.published_at, article.scrapedAt),
-            body: article.content || "",
-            ingest_source: "chrome_extension"
-          };
-          const resp = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-          if (!resp.ok) {
-            const detail = await resp.text();
-            sendResponse({
-              status: "error",
-              error: `Ingest failed: ${resp.status} ${detail}`
-            });
-            return;
-          }
-          sendResponse({ status: "ok" });
-        } catch (err) {
-          sendResponse({ status: "error", error: err?.message || String(err) });
-        }
+        const result = await sendArticle(article);
+        await recordSendResult(result);
+        sendResponse(result);
       });
       return true;
     }
     return void 0;
   });
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    (async () => {
-      if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id) {
-        return;
-      }
-      const frameUrl = info.frameUrl;
-      const targetUrl = info.linkUrl || frameUrl || info.pageUrl || tab.url;
-      if (!targetUrl) {
-        console.warn("No target URL available for capture.");
-        notifyCaptureFailure("No URL available to capture.");
-        return;
-      }
-      const useBackgroundTab = Boolean(info.linkUrl);
-      const permissionTarget = useBackgroundTab ? targetUrl : frameUrl || targetUrl;
-      const granted = await ensureHostPermissionForUrl(permissionTarget);
-      if (!granted) {
-        console.warn("Capture cancelled: site permission was denied for", permissionTarget);
-        notifyCaptureFailure("Site permission was denied.");
-        return;
-      }
-      if (useBackgroundTab) {
-        captureInBackgroundTab(targetUrl);
-        return;
-      }
-      const frameId = typeof info.frameId === "number" ? info.frameId : 0;
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id, frameIds: [frameId] },
-          files: ["contentScript.js"]
-        });
-      } catch (err) {
-        const message = err?.message || String(err);
-        console.warn("Failed to inject content script into frame", permissionTarget, message);
-        notifyCaptureFailure("Could not access the embedded article. Please grant frame permission and try again.");
-      }
-    })().catch((err) => {
-      console.warn("Unexpected error handling capture click", err);
-      notifyCaptureFailure("Capture failed unexpectedly. Please try again.");
-    });
-  });
-  async function captureInBackgroundTab(url) {
-    const tab = await chrome.tabs.create({ url, active: false });
-    const tabId = tab.id;
-    if (!tabId) return;
-    const timeout = setTimeout(() => {
-      chrome.tabs.remove(tabId).catch(() => void 0);
-    }, CAPTURE_TIMEOUT_MS);
-    const injectAndClose = async () => {
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ["contentScript.js"]
-        });
-      } finally {
-        clearTimeout(timeout);
-        chrome.tabs.remove(tabId).catch(() => void 0);
-      }
-    };
-    const listener = async (updatedTabId, changeInfo) => {
-      if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
-      chrome.tabs.onUpdated.removeListener(listener);
-      await injectAndClose();
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-    chrome.tabs.get(tabId).then((t) => {
-      if (t.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        injectAndClose();
-      }
-    });
-  }
 })();
 //# sourceMappingURL=background.js.map

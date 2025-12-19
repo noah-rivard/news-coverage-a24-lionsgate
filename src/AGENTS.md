@@ -15,14 +15,18 @@ Gotchas and expectations:
 
 Recent changes:
 - Manager-agent path added in `agent_runner.py`; CLI defaults to `--mode agent` with a `--mode direct` fallback to the previous hand-wired pipeline.
+- Manager-agent batch helper (`run_with_agent_batch`) supports concurrent per-article runs; the CLI adds a `batch` command with `--concurrency` and per-article duplicate skipping.
 - Summarizer requests skip the `temperature` parameter when `SUMMARIZER_MODEL` is `gpt-5-mini` (model rejects it).
 - Default summary token budget raised to 1,200 (`MAX_TOKENS` env var) to prevent truncated Responses API outputs on longer articles.
+- Summarizer/classifier now raise when the Responses API returns incomplete output (e.g., `max_output_tokens`) so raw response objects are not logged to coverage output.
 - Classifier confidence is now only used to trigger the general-news fallback when present and below the floor; missing confidence no longer forces the fallback prompt.
 - Prompt templates reside in `src/prompts/`; keep `workflow.PROMPTS_DIR` aligned if relocating.
 - Batch summarization helper `_extract_summary_chunks`/`summarize_articles_batch` now fails fast when the model does not emit one summary per article, preventing silent data loss.
 - CLI runs skip duplicate checks automatically for fixtures under `data/samples/debug/`; `ingest_article` also accepts `skip_duplicate=True` when you need to bypass deduping in controlled scenarios.
-- Markdown formatter now outputs three lines (Title, Category, Content) and places the article date (M/D) as the hyperlink to the article URL to match delivery formatting.
+- Markdown formatter now outputs three lines (Title, Category, Content) and ensures the article date (M/D) is hyperlinked to the article URL (it also linkifies any existing `(M/D)` date parentheticals inside content lines).
 - Markdown formatter now preserves all summary bullets (each gains the date link only when missing), preventing multi-title stories from collapsing to a single line.
 - Category display keeps the top-level bucket as `Content, Deals, Distribution` (commas) even when arrow-splitting deeper paths, e.g., `Content, Deals, Distribution -> Sports -> General News & Strategy`.
 - Company inference now uses the buyer keyword routing list (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate), falling back to `Unknown` when nothing matches.
-- After a successful, non-duplicate ingest the pipeline appends the formatted final-output block (with matched buyers and ISO timestamp) to `docs/templates/final_output.md`; override via `FINAL_OUTPUT_PATH` for tests or alternate destinations. The content section now retains all summary bullets (each with date parentheticals added when missing) instead of keeping only the first line.
+- After a successful, non-duplicate ingest the pipeline appends the formatted final-output block (with matched buyers and ISO timestamp) to `docs/templates/final_output.md`; override via `FINAL_OUTPUT_PATH` for tests or alternate destinations. Each fact renders `Content:` as a bullet list so multi-bullet facts are preserved without repeating `Content:` labels; bullets add date parentheticals only when missing.
+- File appends for ingest JSONL, final outputs, and agent traces are guarded by process-local locks to prevent interleaved writes during concurrent runs.
+- The ingest schema now requires a `facts` array (min 1) per article. Each fact carries its own category/subheading/company/quarter/published_at plus `content_line` and `summary_bullets`; legacy single-category fields are deprecated. Formatting/appenders render one Title with multiple Category/Content pairs in model order.

@@ -19,7 +19,7 @@ def _make_result(path: Path) -> PipelineResult:
         company="A24",
         quarter="2025 Q1",
     )
-    summary = SummaryResult(bullets=["First point", "Second point"])
+    summary = SummaryResult(bullets=["First point", "Second point"], facts=[])
     ingest = IngestResult(stored_path=path, duplicate_of=None)
     return PipelineResult(
         markdown="**Title**\n- First point",

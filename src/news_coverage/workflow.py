@@ -23,14 +23,15 @@ from openai import OpenAI
 
 from .config import get_settings
 from .buyer_routing import BUYER_KEYWORDS, match_buyers
+from .file_lock import locked_path
 from .models import Article
 from .schema import validate_article_payload
 from .server import _ensure_parent, _is_duplicate, _jsonl_path
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
-DATE_PAREN_PATTERN = re.compile(
-    r"\(\s*(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(?:\d{2}|\d{4}))?\s*\)"
-)
+_DATE_TEXT_PATTERN = r"(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(\d{2}|\d{4}))?"
+DATE_PAREN_PATTERN = re.compile(rf"\(\s*{_DATE_TEXT_PATTERN}\s*\)")
+DATE_LINK_PAREN_PATTERN = re.compile(rf"\(\s*\[\s*{_DATE_TEXT_PATTERN}\s*\]\(")
 
 
 # --- Data containers -------------------------------------------------------
@@ -48,8 +49,22 @@ class ClassificationResult:
 @dataclass
 class SummaryResult:
     bullets: List[str]
+    facts: List["FactResult"]
     tone: str | None = None
     takeaway: str | None = None
+
+
+@dataclass
+class FactResult:
+    fact_id: str
+    category_path: str
+    section: str
+    subheading: str | None
+    company: str
+    quarter: str
+    published_at: date
+    content_line: str
+    summary_bullets: List[str]
 
 
 @dataclass
@@ -238,6 +253,150 @@ def _split_bullets(text: str) -> List[str]:
     return bullets
 
 
+def _response_text_or_raise(response: object, *, step: str) -> str:
+    """Extract response text or raise a clear error when output is missing."""
+    text = getattr(response, "output_text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+    if isinstance(text, str) and text == "":
+        # Treat explicit empty text as missing output.
+        text = None
+
+    status = getattr(response, "status", None)
+    if status == "incomplete":
+        details = getattr(response, "incomplete_details", None)
+        reason = getattr(details, "reason", None) if details else None
+        hint = (
+            " Increase MAX_TOKENS or reduce the article length."
+            if reason == "max_output_tokens"
+            else ""
+        )
+        raise RuntimeError(
+            f"{step} response incomplete (reason={reason}).{hint}"
+        )
+
+    err = getattr(response, "error", None)
+    if err:
+        raise RuntimeError(f"{step} response error: {err}")
+
+    raise RuntimeError(f"{step} response missing output text.")
+
+
+# --- Fact parsing helpers -------------------------------------------------
+
+FACT_LABEL_MAP: dict[str, str] = {
+    "greenlights": "Greenlights",
+    "greenlight": "Greenlights",
+    "renewals": "Renewals",
+    "renewal": "Renewals",
+    "development": "Development",
+    "pickup": "Pickups",
+    "pickups": "Pickups",
+    "cancellations": "Cancellations",
+    "cancellation": "Cancellations",
+    "dating": "Dating",
+    "exec changes": "Exec Changes",
+    "exec change": "Exec Changes",
+    "general": "General News & Strategy",
+}
+
+
+def _label_from_bullet(text: str) -> tuple[str | None, str]:
+    """
+    Extract a leading label like 'Greenlights: Foo' -> ('Greenlights', 'Foo').
+    If no label is found, returns (None, original_text).
+    """
+    if ":" in text:
+        possible, rest = text.split(":", 1)
+        key = possible.strip().lower()
+        if key in FACT_LABEL_MAP:
+            return FACT_LABEL_MAP[key], rest.strip()
+    return None, text.strip()
+
+
+def _build_fact_category(base_category: str, label: str | None) -> tuple[str, str, str | None]:
+    """
+    Combine the classifier's base path with the label-derived subheading.
+    Keeps the top-level/medium from the classifier when available.
+    """
+    if not base_category:
+        return "General News & Strategy", "Strategy & Miscellaneous News", "General News & Strategy"
+    parts_full = [p.strip() for p in base_category.split("->")]
+    base_parts = parts_full[:-1] if len(parts_full) > 1 else parts_full
+    fallback_sub = parts_full[-1] if parts_full else None
+    subheading = label or fallback_sub
+    category_path = " -> ".join(base_parts + ([subheading] if subheading else []))
+    section, parsed_sub = _parse_category_path(category_path)
+    return category_path, section, parsed_sub
+
+
+def _assemble_facts(
+    bullets: List[str],
+    classification: "ClassificationResult",
+    article: Article,
+) -> List[FactResult]:
+    """
+    Turn labeled bullets into FactResult objects, preserving order.
+    """
+    facts: List[FactResult] = []
+    for idx, raw in enumerate(bullets, start=1):
+        label, content = _label_from_bullet(raw)
+        category_path, section, subheading = _build_fact_category(classification.category, label)
+        fact = FactResult(
+            fact_id=f"fact-{idx}",
+            category_path=category_path,
+            section=section,
+            subheading=subheading,
+            company=classification.company,
+            quarter=classification.quarter,
+            published_at=article.published_at.date() if article.published_at else date.today(),
+            content_line=content,
+            summary_bullets=[content],
+        )
+        facts.append(fact)
+    return facts
+
+
+def _fallback_fact_for_empty_summary(
+    article: Article,
+    classification: "ClassificationResult",
+    summary: "SummaryResult",
+) -> FactResult:
+    content_line = (summary.takeaway or "").strip()
+    if not content_line:
+        content_line = next((b.strip() for b in summary.bullets if b.strip()), "")
+    if not content_line:
+        content_line = article.title.strip()
+    if not content_line:
+        content_line = "Summary unavailable."
+
+    category_path = (
+        classification.category or "Strategy & Miscellaneous News -> General News & Strategy"
+    )
+    section, subheading = _parse_category_path(category_path)
+    published_at = article.published_at.date() if article.published_at else date.today()
+    return FactResult(
+        fact_id="fact-1",
+        category_path=category_path,
+        section=section,
+        subheading=subheading or "General News & Strategy",
+        company=classification.company,
+        quarter=classification.quarter,
+        published_at=published_at,
+        content_line=content_line,
+        summary_bullets=[content_line],
+    )
+
+
+def _facts_for_article(
+    article: Article,
+    classification: "ClassificationResult",
+    summary: "SummaryResult",
+) -> List[FactResult]:
+    facts = summary.facts or _assemble_facts(summary.bullets, classification, article)
+    return facts or [_fallback_fact_for_empty_summary(article, classification, summary)]
+
+
 def _extract_summary_chunks(text: str, expected_count: int) -> List[str]:
     """
     Split a multi-article model response into one chunk per article.
@@ -307,7 +466,7 @@ def classify_article(article: Article, client: OpenAI) -> ClassificationResult:
         max_output_tokens=200,
         temperature=0.0,
     )
-    category_raw = getattr(response, "output_text", "") or str(response)
+    category_raw = _response_text_or_raise(response, step="Classifier")
     category, conf = _normalize_category(category_raw)
     section, subheading = _parse_category_path(category)
     company = _infer_company(article)
@@ -345,9 +504,9 @@ def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> Sum
         request_kwargs["temperature"] = settings.temperature
 
     response = client.responses.create(**request_kwargs)
-    text_output = getattr(response, "output_text", "") or str(response)
+    text_output = _response_text_or_raise(response, step="Summarizer")
     bullets = _split_bullets(text_output)
-    return SummaryResult(bullets=bullets)
+    return SummaryResult(bullets=bullets, facts=[])
 
 
 def summarize_articles_batch(
@@ -403,9 +562,9 @@ def summarize_articles_batch(
         request_kwargs["temperature"] = settings.temperature
 
     response = client.responses.create(**request_kwargs)
-    text_output = getattr(response, "output_text", "") or str(response)
+    text_output = _response_text_or_raise(response, step="Summarizer (batch)")
     chunks = _extract_summary_chunks(text_output, len(articles))
-    return [SummaryResult(bullets=_split_bullets(chunk)) for chunk in chunks]
+    return [SummaryResult(bullets=_split_bullets(chunk), facts=[]) for chunk in chunks]
 
 
 def _format_date_for_display(dt: date) -> str:
@@ -443,8 +602,8 @@ def _ordered_buyers(buyers: set[str]) -> list[str]:
     return ordered + extras
 
 
-def _format_summary_lines(bullets: list[str], date_link: str) -> list[str]:
-    """Return summary lines, appending the date link when missing a parenthetical."""
+def _format_summary_lines(bullets: list[str], date_link: str, url: str) -> list[str]:
+    """Return summary lines, linking/adding the article date where needed."""
 
     if not bullets:
         return [""]
@@ -452,10 +611,28 @@ def _format_summary_lines(bullets: list[str], date_link: str) -> list[str]:
     lines: list[str] = []
     for bullet in bullets:
         text = bullet.strip()
-        if text and not _has_date_parenthetical(text):
+        if not text:
+            lines.append(text)
+            continue
+        text = _linkify_date_parentheticals(text, url)
+        if text and not _has_date_marker(text):
             text = f"{text} ({date_link})"
         lines.append(text)
     return lines
+
+
+def _fact_summary_bullets(fact: "FactResult") -> list[str]:
+    """
+    Return the list of summary bullet strings to render for a fact.
+
+    Prefer `summary_bullets` when present (new schema); fall back to
+    `content_line` for backward compatibility.
+    """
+    bullets = [b for b in (fact.summary_bullets or []) if (b or "").strip()]
+    if bullets:
+        return bullets
+    text = (fact.content_line or "").strip()
+    return [text] if text else []
 
 
 def format_final_output_entry(
@@ -465,8 +642,11 @@ def format_final_output_entry(
     Compose the final-output block used for the markdown log file.
 
     Mirrors the delivery layout the user requested, with matched buyers,
-    category path, all summary bullets (each with an M/D parenthetical when
-    missing), ISO timestamp, and the source URL.
+    one article title, one or more fact blocks (Category + a bulleted Content
+    list), an ISO timestamp, and the source URL.
+
+    The Content section is always a bullet list to avoid ambiguous parsing
+    when a single fact contains multiple summary bullets.
     """
     matches = match_buyers(article)
     buyer_set = set(matches.strong) | set(matches.weak)
@@ -477,23 +657,29 @@ def format_final_output_entry(
     publish_date = article.published_at.date() if article.published_at else date.today()
     date_display = _format_date_for_display(publish_date)
     date_link = f"[{date_display}]({article.url})"
-    content_lines = _format_summary_lines(summary.bullets, date_link)
+    url = str(article.url)
+    facts = _facts_for_article(article, classification, summary)
 
     iso_timestamp = _format_iso_timestamp(article.published_at)
-    category_display = _format_category_display(classification.category)
 
     lines = [
         f"Matched buyers: {ordered_buyers}",
         "",
         f"Title: {article.title}",
-        "",
-        f"Category: {category_display}",
-        "",
-        f"Content: {content_lines[0] if content_lines else ''}",
     ]
 
-    if len(content_lines) > 1:
-        lines.extend(content_lines[1:])
+    for fact in facts:
+        category_display = _format_category_display(fact.category_path)
+        content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
+        lines.extend(
+            [
+                "",
+                f"Category: {category_display}",
+                "",
+                "Content:",
+                *([f"- {line}" for line in content_lines] if content_lines else ["-"]),
+            ]
+        )
 
     lines.extend(
         [
@@ -517,14 +703,14 @@ def append_final_output_entry(
     entry = format_final_output_entry(article, classification, summary)
     target = destination or _final_output_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing_text = target.read_text(encoding="utf-8") if target.exists() else ""
-    needs_spacing = bool(existing_text.strip())
-    trailing_newlines = len(existing_text) - len(existing_text.rstrip("\n"))
-    spacer_count = max(0, 2 - trailing_newlines) if needs_spacing else 0
-    spacer = "\n" * spacer_count
-    extra_newline = "\n" if len(summary.bullets) > 1 else ""
-    with target.open("a", encoding="utf-8") as f:
-        f.write(f"{spacer}{entry}\n{extra_newline}")
+    with locked_path(target):
+        existing_text = target.read_text(encoding="utf-8") if target.exists() else ""
+        needs_spacing = bool(existing_text.strip())
+        trailing_newlines = len(existing_text) - len(existing_text.rstrip("\n"))
+        spacer_count = max(0, 2 - trailing_newlines) if needs_spacing else 0
+        spacer = "\n" * spacer_count
+        with target.open("a", encoding="utf-8") as f:
+            f.write(f"{spacer}{entry}\n")
     return target
 
 
@@ -534,23 +720,47 @@ def _has_date_parenthetical(text: str) -> bool:
     return bool(DATE_PAREN_PATTERN.search(text))
 
 
+def _has_date_marker(text: str) -> bool:
+    """
+    Return True when the string contains a date marker.
+
+    Supported markers:
+    - Plain parenthetical: "(M/D)" or "(M/D/YY)"
+    - Linked parenthetical: "([M/D](URL))" or "([M/D/YY](URL))"
+    """
+
+    return bool(DATE_PAREN_PATTERN.search(text) or DATE_LINK_PAREN_PATTERN.search(text))
+
+
+def _linkify_date_parentheticals(text: str, url: str) -> str:
+    """Replace plain date parentheticals like "(12/17)" with "([12/17](URL))"."""
+
+    def _replace(match: re.Match[str]) -> str:
+        month = int(match.group(1))
+        day = int(match.group(2))
+        year = match.group(3)
+        date_text = f"{month}/{day}" + (f"/{year}" if year else "")
+        return f"([{date_text}]({url}))"
+
+    return DATE_PAREN_PATTERN.sub(_replace, text)
+
+
 def format_markdown(
     article: Article, classification: ClassificationResult, summary: SummaryResult
 ) -> str:
     """Render delivery-friendly markdown with Title/Category/Content lines."""
-    category_display = _format_category_display(classification.category)
     date_value = article.published_at.date() if article.published_at else date.today()
     date_text = _format_date_for_display(date_value)
     date_link = f"[{date_text}]({article.url})"
-    content_lines = _format_summary_lines(summary.bullets, date_link)
+    url = str(article.url)
+    facts = _facts_for_article(article, classification, summary)
 
-    lines = [
-        f"Title: {article.title}",
-        f"Category: {category_display}",
-        f"Content: {content_lines[0] if content_lines else ''}",
-    ]
-    if len(content_lines) > 1:
-        lines.extend(content_lines[1:])
+    lines = [f"Title: {article.title}"]
+    for fact in facts:
+        category_display = _format_category_display(fact.category_path)
+        content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
+        lines.append(f"Category: {category_display}")
+        lines.extend([f"Content: {line}" for line in (content_lines or [""])])
     return "\n".join(lines)
 
 
@@ -561,10 +771,10 @@ def ingest_article(
     *,
     skip_duplicate: bool = False,
 ) -> IngestResult:
+    facts = _facts_for_article(article, classification, summary)
     schema_payload = {
         "company": classification.company,
         "quarter": classification.quarter,
-        "section": classification.section,
         "title": article.title,
         "source": article.source,
         "url": str(article.url),
@@ -573,21 +783,33 @@ def ingest_article(
             if article.published_at
             else date.today().isoformat()
         ),
-        "subheading": classification.subheading or "General News & Strategy",
-        "summary": " ".join(summary.bullets[:3]) if summary.bullets else "",
-        "bullet_points": summary.bullets,
         "classification_notes": classification.category,
+        "facts": [
+            {
+                "fact_id": fact.fact_id,
+                "category_path": fact.category_path,
+                "section": fact.section,
+                "subheading": fact.subheading or "General News & Strategy",
+                "company": fact.company,
+                "quarter": fact.quarter,
+                "published_at": fact.published_at.isoformat(),
+                "content_line": fact.content_line,
+                "summary_bullets": fact.summary_bullets,
+            }
+            for fact in facts
+        ],
     }
     validated = validate_article_payload(schema_payload)
     path = _jsonl_path(validated["company"], validated["quarter"])
-    duplicate_id = None if skip_duplicate else _is_duplicate(path, validated["url"])
-    if duplicate_id:
-        return IngestResult(stored_path=path, duplicate_of=duplicate_id)
+    with locked_path(path):
+        duplicate_id = None if skip_duplicate else _is_duplicate(path, validated["url"])
+        if duplicate_id:
+            return IngestResult(stored_path=path, duplicate_of=duplicate_id)
 
-    _ensure_parent(path)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(validated, ensure_ascii=False))
-        f.write("\n")
+        _ensure_parent(path)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(validated, ensure_ascii=False))
+            f.write("\n")
     return IngestResult(stored_path=path, duplicate_of=None)
 
 
@@ -627,15 +849,18 @@ def format_content_deals(
 
     publish_date = article.published_at.date() if article.published_at else date.today()
     date_text = _format_date_for_display(publish_date)
+    url = str(article.url)
+    date_link = f"[{date_text}]({url})"
 
     rendered_lines: list[str] = []
     for line in summary.bullets:
         trimmed = line.strip()
         if not trimmed:
             continue
-        # Append date only when a date parenthetical is missing (ignore other parentheses).
-        if not _has_date_parenthetical(trimmed):
-            trimmed = f"{trimmed} ({date_text})"
+        trimmed = _linkify_date_parentheticals(trimmed, url)
+        # Append date only when a date marker is missing (ignore other parentheses).
+        if not _has_date_marker(trimmed):
+            trimmed = f"{trimmed} ({date_link})"
         rendered_lines.append(trimmed)
 
     return "\n".join(rendered_lines)
@@ -740,6 +965,8 @@ def process_article(
     prompt_name, routed_formatter = _route_prompt_and_formatter(classification)
     active_formatter = formatter_fn or routed_formatter
     summary = summarizer_fn(article, prompt_name, client)
+    if not summary.facts:
+        summary.facts = _assemble_facts(summary.bullets, classification, article)
     markdown = active_formatter(article, classification, summary)
     ingest_result = ingest_fn(article, classification, summary)
 

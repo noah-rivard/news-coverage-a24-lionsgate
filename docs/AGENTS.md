@@ -11,3 +11,4 @@ Gotchas and expectations:
 - `docs/templates/final_output.md` is now appended automatically after successful pipeline runs; override with `FINAL_OUTPUT_PATH` in tests to avoid mutating tracked docs.
 - The DOCX generator for multi-buyer coverage is documented in README; keep this file aligned when CLI flags or output locations change.
 - Coverage schema/ingest docs list all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate, Unknown); keep these in sync with the workflow and schema enums.
+- Coverage schema now requires a `facts` array (min 1) with per-fact category/subheading/company/quarter/published_at plus content/summary; legacy single-category summary fields are documented as deprecated.

@@ -12,16 +12,20 @@ Base URL: to be configured by the user (e.g., http://localhost:8000). All endpoi
 ### POST /ingest/article
 - Purpose: accept one article payload matching `coverage_schema.json`.
 - Request headers: `Content-Type: application/json`.
-- Request body: CoverageArticle object (see schema). `id` optional; if omitted, server will assign UUID.
+- Request body: CoverageArticle object (see schema). `id` optional; if omitted, server will assign a random id.
 - Validation:
-  - Required fields: company, quarter, section, title, source, url, published_at.
-  - `quarter` must match `YYYY Q[1-4]` and align with `published_at` unless `quarter_inferred_from` is `title` or `user_override`.
-  - `section` and `subheading` must be from the enumerations in the schema.
+  - Required fields: company, quarter, title, source, url, published_at, facts (min 1).
+  - `quarter` must match `YYYY Q[1-4]`.
+  - Each `facts[]` object must include: fact_id, category_path, section, content_line, summary_bullets.
+  - Facts may also include subheading/company/quarter/published_at overrides, but typical runs inherit company/quarter/published_at from the article level.
   - Duplicate handling: the server should reject exact-URL duplicates with `409 Conflict` and include `duplicate_of` in the response.
 - Responses:
   - `201 Created` with body `{ "status": "stored", "id": "<uuid>", "stored_path": "data/ingest/{company}/{quarter}.jsonl", "normalized_quarter": "YYYY Q#" }`.
   - `400 Bad Request` on schema validation errors; body contains `errors: [...]`.
   - `409 Conflict` on duplicate URL/ID; body contains `duplicate_of`.
+
+Legacy compatibility:
+- The server accepts legacy single-category payloads that included top-level `section` and `subheading` (plus optional `summary` / `bullet_points`). When `facts` is missing, the server synthesizes a single `facts[0]` entry and drops the legacy keys before validation.
 
 ### POST /classify (optional)
 - Purpose: return best-guess company/section/subheading/quarter for a URL+body before ingestion.

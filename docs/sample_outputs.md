@@ -3,7 +3,7 @@
 Latest end-to-end pipeline summaries for the three Variety debug articles in `data/samples/debug/`. Each entry mirrors the delivery-friendly example format (Title, Category, Content).
 
 Title: Mandy Moore / "Teach Me" (Peacock thriller, 12/5)
-Category: Content -> Deals -> Distribution -> TV -> Development
+Category: Content, Deals, Distribution -> TV -> Development
 Content: Peacock orders the erotic thriller "Teach Me" starring Mandy Moore. ([12/5](https://variety.com/2025/tv/news/mandy-moore-teach-me-erotic-thriller-peacock-a24-1236601287/))
 
 Title: WGA Opposes Netflix-Warner Bros. Discovery Deal

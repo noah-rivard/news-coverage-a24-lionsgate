@@ -1,8 +1,8 @@
 ﻿import datetime
 import pytest
 
-from src.news_coverage.models import Article
-from src.news_coverage.workflow import (
+from news_coverage.models import Article
+from news_coverage.workflow import (
     ClassificationResult,
     SummaryResult,
     format_content_deals,
@@ -39,11 +39,21 @@ def test_format_content_deals_preserves_lines_and_dates(sample_article):
         "[Brazil] As Crianças Estão de Volta: Netflix, family drama (12/9)",
         "[Brazil] Sua Mãe Te Conhece: Netflix, reality competition (12/9)",
     ]
-    summary = SummaryResult(bullets=bullets)
+    summary = SummaryResult(bullets=bullets, facts=[])
 
     rendered = format_content_deals(sample_article, classification, summary)
 
-    assert rendered == "\n".join(bullets)
+    date_link = "([12/9](https://example.com/variety-slate))"
+    expected = [
+        "[Brazil] The Pilgrimage: Netflix, drama " + date_link,
+        "[Brazil] A Estranha na Cama: Netflix, psychological thriller " + date_link,
+        "[Brazil] Rauls: Netflix, crime drama " + date_link,
+        "[Brazil] Habeas Corpus: Netflix, legal drama " + date_link,
+        "[Brazil] Os 12 Signos de Valentina: Netflix, romantic comedy " + date_link,
+        "[Brazil] As Crianças Estão de Volta: Netflix, family drama " + date_link,
+        "[Brazil] Sua Mãe Te Conhece: Netflix, reality competition " + date_link,
+    ]
+    assert rendered == "\n".join(expected)
 
 
 def test_format_content_deals_appends_date_when_parentheses_are_not_dates(sample_article):
@@ -59,13 +69,14 @@ def test_format_content_deals_appends_date_when_parentheses_are_not_dates(sample
         "[Brazil] The Pilgrimage (Director's Cut): Netflix, drama",
         "[Brazil] Rauls (Festival Cut): Netflix, crime drama (12/9)",
     ]
-    summary = SummaryResult(bullets=bullets)
+    summary = SummaryResult(bullets=bullets, facts=[])
 
     rendered = format_content_deals(sample_article, classification, summary)
 
+    date_link = "([12/9](https://example.com/variety-slate))"
     assert rendered.splitlines() == [
-        "[Brazil] The Pilgrimage (Director's Cut): Netflix, drama (12/9)",
-        "[Brazil] Rauls (Festival Cut): Netflix, crime drama (12/9)",
+        "[Brazil] The Pilgrimage (Director's Cut): Netflix, drama " + date_link,
+        "[Brazil] Rauls (Festival Cut): Netflix, crime drama " + date_link,
     ]
 
 
