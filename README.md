@@ -29,11 +29,9 @@ python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json
 
 Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summarizer. The agent path always needs the key because it builds the manager model.
 
-By default summaries can use up to 1,200 tokens; set the environment variable `MAX_TOKENS` if you need to raise or lower that limit when articles are especially long. If the model hits `max_output_tokens`, the run now errors so you can increase the limit instead of logging a raw response blob.
+By default summaries do not set an explicit output token cap. Set the environment variable `MAX_TOKENS` to a positive number if you want a cap (raise it if long articles truncate), or set `MAX_TOKENS=0` to remove the cap. If the model hits `max_output_tokens`, the run errors so you can adjust the cap or shorten the article.
 
-If you need to re-run an article that was already ingested (same URL), use either:
-- `--skip-duplicate-for-url "<exact url>"` (recommended; only bypasses when the payload URL matches)
-- `--skip-duplicate` (bypasses duplicate detection for the whole run)
+Re-running the same URL will create a new ingest entry and a new final output block (the pipeline no longer de-duplicates).
 
 To process multiple articles in parallel (each article remains a separate run), use the batch command:
 
@@ -74,6 +72,7 @@ curl -X POST http://localhost:8000/ingest/article ^
   -H "Content-Type: application/json" ^
   -d "{\"company\":\"A24\",\"quarter\":\"2025 Q4\",\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"published_at\":\"2025-12-01\",\"facts\":[{\"fact_id\":\"fact-1\",\"category_path\":\"Strategy & Miscellaneous News -> General News & Strategy\",\"section\":\"Strategy & Miscellaneous News\",\"subheading\":\"General News & Strategy\",\"content_line\":\"Example\",\"summary_bullets\":[\"Example\"]}]}"
 ```
+Posting the same payload again will append another line to the JSONL file (no de-duplication).
 
 Process an article through the full pipeline (classify → summarize → format → ingest) via the new endpoint:
 
@@ -84,10 +83,6 @@ curl -X POST http://localhost:8000/process/article ^
 ```
 
 Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
-
-To re-run a URL that already exists in storage, pass a query param:
-- `skip_duplicate=true` (bypass for this request), or
-- `skip_duplicate_for_url=<exact url>` (safer; only bypasses when it matches the payload `url`)
 
 Environment knobs:
 - `INGEST_DATA_DIR` to change storage root.
@@ -112,7 +107,7 @@ Load in Chrome:
 1) Open `chrome://extensions/`, enable Developer Mode.
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
 3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically; if the background tab hangs or Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
-4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed (or marked duplicate); the "Send" button is a manual retry.
+4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed; the "Send" button is a manual retry.
 
 Configure endpoint:
 - In the options page, set the endpoint URL (default `http://localhost:8000/process/article`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload.
@@ -144,7 +139,7 @@ python -m news_coverage.cli data/samples/debug/variety_wga_netflix_warner_merger
 ```
 
 - The set covers the Netflix-Warner Bros. merger story, an A24/Peacock series announcement, and a column on what a Netflix-owned Warner Bros. would mean for theaters.
-- Duplicate checks are automatically skipped for files under `data/samples/debug/` so you can rerun them without 409-style messages.
+- Re-running the fixtures will create new ingest entries (no de-duplication).
 
 ## Output Format
 
@@ -164,7 +159,7 @@ Markdown output is delivery-ready and follows three lines:
 - `Category: <classifier path with arrows>` (the top bucket stays as `Content, Deals, Distribution` so you’ll see `Content, Deals, Distribution -> TV -> …`)
 - `Content: <leading summary sentence> ([M/D](article_url))` -- the date (month/day) is the hyperlink to the article.
 
-After a successful, non-duplicate run, the pipeline also appends a delivery-ready
+After a successful run, the pipeline also appends a delivery-ready
 block (including matched buyers and ISO publish timestamp) to
 `docs/templates/final_output.md`. Set `FINAL_OUTPUT_PATH` to redirect this log
 in tests or other environments.
@@ -181,7 +176,7 @@ hyperlink when it lacks a date parenthetical.
 
 - One coordinator (manager model) stays in control and calls specialist helpers as tools: classify (fine-tuned), summarize, format (Markdown), ingest (schema + JSONL storage).
 - Each run handles a single article end-to-end (stateless); default tools need an API key, but you can inject classifier/summarizer implementations (or a prepared `OpenAI` client) to run offline for tests.
-- Duplicate URLs return a 409-style message and do not write a new record.
+- Repeated URLs are stored again and always append new output entries.
 - Prompt routing now uses a declarative table (category substrings -> prompt + formatter). If classifier confidence is below `ROUTING_CONFIDENCE_FLOOR` (default 0.5), the coordinator defaults to `general_news.txt` to avoid misrouting.
 - Batch summarization helper (`summarize_articles_batch`) accepts one prompt per article and still fails fast if the model response does not include one summary per article, so no stories disappear silently.
 - A reviewer/quality-check agent is planned later to flag tone or accuracy issues (see `ROADMAP.md`).
@@ -214,7 +209,7 @@ Review `AGENTS.md` before making changes. Key points:
 
 Current ExecPlans
 - Active: `.agent/in_progress/execplan-chrome-extension.md` (extension + ingest design), `.agent/in_progress/execplan-multi-fact-classification-storage.md` (store multiple labeled facts per article), and `.agent/in_progress/execplan-parallel-agent-runs.md` (parallel batch processing).
-- Recently finished and archived to `.agent/complete/`: auto-process endpoint & extension auto-send (`execplan-auto-process-endpoint.md`), minimal-permission Feedly capture flow (`execplan-feedly-capture-flow.md`), and multi-title slate routing/formatting (`route-slate-articles.md`).
+- Recently finished and archived to `.agent/complete/`: remove duplicate skipping (`execplan-remove-duplicate-skips.md`), auto-process endpoint & extension auto-send (`execplan-auto-process-endpoint.md`), minimal-permission Feedly capture flow (`execplan-feedly-capture-flow.md`), and multi-title slate routing/formatting (`route-slate-articles.md`).
 
 ## Roadmap
 

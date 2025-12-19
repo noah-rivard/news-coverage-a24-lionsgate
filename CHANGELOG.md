@@ -19,8 +19,7 @@ All notable changes to this project will be documented in this file. This projec
 - ExecPlan for building the Python OpenAI Agents workflow (`.agent/in_progress/execplan-news-agent.md`).
 - Project scaffolding with `pyproject.toml`, package source under `src/news_coverage/`, and component guide `src/AGENTS.md`.
 - Coordinator pipeline (`news_coverage.workflow.process_article`) that classifies (fine-tuned model), summarizes, formats Markdown, and ingests to JSONL.
-- CLI now supports single-article runs with optional file output and surfaces duplicate (409-style) responses.
-- CLI now supports `--skip-duplicate` and `--skip-duplicate-for-url` to intentionally re-run (and re-ingest) an already-stored URL for debugging.
+- CLI now supports single-article runs with optional file output.
 - Unit tests for the coordinator pipeline; pytest/flake8 kept green.
 - Expanded subheading normalization (Analyst Perspective, IR Conferences, Misc. News) to align classifier output with schema.
 - Pipeline now appends each successful article to `docs/templates/final_output.md` (override with `FINAL_OUTPUT_PATH`) using the matched-buyers format.
@@ -30,9 +29,8 @@ All notable changes to this project will be documented in this file. This projec
 - Canonical coverage payload schema and guide (`docs/templates/coverage_schema.json` and `docs/templates/coverage_schema.md`) for the Chrome extension and backend ingest.
 - Ingest API contract draft (`docs/templates/ingest_api_contract.md`) specifying endpoints, validation, errors, and storage rules aligned to the coverage schema.
 - Python schema loader/validator (`news_coverage.schema`) backed by `jsonschema`, plus tests for valid/invalid payloads.
-- FastAPI ingest service (`news_coverage.server`) with `/health` and `/ingest/article` endpoints using the schema validator, duplicate detection, and JSONL storage; tests cover happy path and duplicate rejection.
+- FastAPI ingest service (`news_coverage.server`) with `/health` and `/ingest/article` endpoints using the schema validator and JSONL storage; tests cover happy paths.
 - FastAPI `/process/article` endpoint that runs the manager-agent pipeline (classify → summarize → format → ingest) and returns Markdown plus storage metadata for a single scraped article.
-- `/process/article` now supports `skip_duplicate` and `skip_duplicate_for_url` query params to bypass duplicate detection for a single request when reprocessing an article.
 - Agents SDK quick reference (`docs/agents_sdk_quickref.md`) summarizing how this repo should use the OpenAI Agents SDK.
 - Docs component guide (`docs/AGENTS.md`) to keep documentation updates concise and aligned with code behavior.
 - Component guide for the core workflow/services (`src/news_coverage/AGENTS.md`) noting how injected tools can run offline.
@@ -46,21 +44,22 @@ All notable changes to this project will be documented in this file. This projec
 - Popup surfaces capture failures (e.g., permission denied) and guides users to right-click capture when no article is cached.
 - Company inference now routes across all major buyers (Amazon, Apple, Comcast/NBCU, Disney, Netflix, Paramount, Sony, WBD, A24, Lionsgate) instead of only A24/Lionsgate; schema/docs/ingest contract updated to reflect the expanded enum.
 - Paramount keyword order now prioritizes `cbs`/network brands before generic `paramount` terms so title hits (e.g., "... at CBS") register as strong matches instead of being overridden by weaker body-only matches.
+- Removed duplicate detection across ingest and processing; repeated URLs always append and skip-duplicate flags/query params were removed.
+- ExecPlan housekeeping: archived `execplan-remove-duplicate-skips.md` to `.agent/complete/`.
 - README cleanup: clarified Chrome extension steps, fixed output format bullet, and pointed ExecPlan references to `.agent/complete/`.
 - Chrome intake extension now auto-sends each captured article to the configured endpoint (default `/process/article`) and reports status in the popup; options default updated accordingly while keeping `/ingest/article` compatibility.
 - Rewrote top-level `AGENTS.md` to clarify definition of done, quality checks, safety/data handling expectations, ExecPlan triggers, and component-guide index.
-- README now documents the coordinator workflow, single-article CLI usage, duplicate handling, and the fact that injected tools can run without an API key.
+- README now documents the coordinator workflow, single-article CLI usage, and the fact that injected tools can run without an API key.
 - README documents the DOCX generator and how to invoke it.
 - CLI defaults to the manager agent path; `--mode direct` retains the legacy direct pipeline.
 - JSONL ingest, final-output, and agent-trace appends now use process-local file locks to prevent interleaved writes during concurrent runs.
 - Clarified CLI invocation uses a single command (no `run` subcommand) in README examples.
-- Default summary token limit increased to 1,200 (`MAX_TOKENS`) to reduce truncated Responses API outputs on longer articles; README and component guides note the new default.
+- Summarizer no longer sets a default max-output token cap; `MAX_TOKENS` is now optional (unset or 0 removes the cap, positive values enforce one). README and component guides note the new behavior.
 - Prompt routing now treats missing classifier confidence as sufficiently confident, so specialized prompts (e.g., content formatter) are used unless a low confidence score is explicitly returned.
 - Clarified in the Agents SDK quick reference that runs are stateless and handled one article at a time.
 - `process_article` only constructs an OpenAI client when default tools are used; injected classifier/summarizer pairs (or a provided client) no longer require `OPENAI_API_KEY`, enabling offline tests. README and component guides now reflect this behavior.
 - Prompt templates relocated under `src/prompts/` to align with `workflow.PROMPTS_DIR`.
 - README includes a quick-start note on the debug fixture files for repeatable testing.
-- CLI skips duplicate checks when running fixtures under `data/samples/debug/`, and `ingest_article` now supports an explicit `skip_duplicate` flag (covered by tests).
 - Debug fixture content now uses the full Dec 5, 2025 Variety article bodies so local runs reflect real-world ingest text; README and `data/AGENTS.md` note the change and its internal-only intent.
 - Coordinator prompt/formatter routing is now a declarative table with a confidence floor fallback to `general_news.txt`; batch summarization accepts one prompt per article while preserving 1:1 chunk validation. README and component guides capture the new behavior.
 - Markdown formatter now emits delivery-ready `Title` / `Category` / `Content` lines and appends the article date (M/D) as the hyperlink to the source URL; docs and sample outputs reflect the format.

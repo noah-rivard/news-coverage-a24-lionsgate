@@ -20,10 +20,11 @@ class Settings(BaseSettings):
         "ft:gpt-4.1-2025-04-14:personal:news-categorizer:BY2DIiT5",
         description="Fine-tuned classifier that returns category paths.",
     )
-    max_tokens: int = Field(
-        1200,
+    max_tokens: int | None = Field(
+        None,
         description=(
-            "Max tokens for each summary response; raise if long articles are truncating."
+            "Optional max tokens for each summary response. "
+            "Unset or 0 means no explicit cap."
         ),
     )
     temperature: float = Field(0.3, description="Generation temperature.")

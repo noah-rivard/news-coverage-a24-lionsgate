@@ -1,6 +1,6 @@
 # Final Output Template
 
-This file is appended automatically after each successful (non-duplicate) pipeline run.
+This file is appended automatically after each successful pipeline run.
 Set `FINAL_OUTPUT_PATH` to override the destination during tests or alternative deployments.
 
 Layout notes:

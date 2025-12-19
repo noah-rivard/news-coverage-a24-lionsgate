@@ -114,45 +114,13 @@ def test_run_with_agent_uses_runner_and_context(monkeypatch, tmp_path):
     assert "Title: Sample Story" in final_path.read_text(encoding="utf-8")
 
 
-def test_run_with_agent_respects_skip_duplicate(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AGENT_TRACE_PATH", "")
-    final_path = tmp_path / "final_output.md"
-    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(final_path))
-    classification, summary, ingest, markdown = _make_stubs(tmp_path)
-    ingest_dup = IngestResult(stored_path=ingest.stored_path, duplicate_of="existing")
-
-    class SkipAwareRunner(FakeRunner):
-        def run_sync(self, starting_agent, input, context=None, **kwargs):
-            chosen_ingest = ingest if context.skip_duplicate else ingest_dup
-            self.ingest = chosen_ingest
-            return super().run_sync(starting_agent, input, context, **kwargs)
-
-    runner = SkipAwareRunner(classification, summary, ingest, markdown)
-
-    article = Article(
-        title="Another Story",
-        source="Demo",
-        url="https://example.com/other",
-        content="Lionsgate moves into animation.",
-    )
-
-    result = run_with_agent(article, runner=runner, skip_duplicate=True)
-    assert result.ingest.duplicate_of is None
-    first_len = final_path.read_bytes()
-
-    result_dup = run_with_agent(article, runner=runner, skip_duplicate=False)
-    assert result_dup.ingest.duplicate_of == "existing"
-    assert final_path.read_bytes() == first_len
-
-
 def test_run_with_agent_batch_collects_errors(monkeypatch, tmp_path):
     good_article, good_result = _make_pipeline_result(tmp_path, "Good")
     bad_article, _ = _make_pipeline_result(tmp_path, "Bad")
     calls = []
 
-    def fake_run(article, *, skip_duplicate=False, **_kwargs):
-        calls.append((article.title, skip_duplicate))
+    def fake_run(article, **_kwargs):
+        calls.append(article.title)
         if article.title == "Bad":
             raise RuntimeError("boom")
         return good_result
@@ -161,12 +129,10 @@ def test_run_with_agent_batch_collects_errors(monkeypatch, tmp_path):
 
     batch = run_with_agent_batch(
         [good_article, bad_article],
-        skip_duplicate=[False, True],
         max_workers=2,
     )
 
     assert len(batch.items) == 2
     assert batch.items[0].result is not None
     assert batch.items[1].error == "boom"
-    assert dict(calls)["Good"] is False
-    assert dict(calls)["Bad"] is True
+    assert set(calls) == {"Good", "Bad"}

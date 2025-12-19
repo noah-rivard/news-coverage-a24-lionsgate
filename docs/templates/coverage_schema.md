@@ -25,7 +25,7 @@ This schema defines the payload the Chrome extension (and any other intake) must
 - `classification_notes`: Free-text notes on why the article-level classification was chosen.
 - `ingest_source`: `chrome_extension | feedly | manual_upload | test_fixture`.
 - `ingest_version`: Version of the ingest tool/extension.
-- `duplicate_of`: If this is a duplicate, store the original article ID or URL.
+- `duplicate_of`: Reserved for future de-duplication; currently not populated by the ingest service.
 - `facts` (required): Array of fact objects capturing per-fact category and summary. Order is preserved from the model output. Must contain at least one fact.
 
 ## Fact fields (inside `facts[]`)

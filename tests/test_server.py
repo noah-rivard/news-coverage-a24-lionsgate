@@ -69,15 +69,16 @@ def test_ingest_stores_article(tmp_path):
     assert "captured_at" in stored
 
 
-def test_ingest_rejects_duplicate_url(tmp_path):
+def test_ingest_allows_duplicate_url(tmp_path):
     client = make_client(tmp_path)
     payload = sample_payload()
     first = client.post("/ingest/article", json=payload)
     assert first.status_code == 201
     second = client.post("/ingest/article", json=payload)
-    assert second.status_code == 409
-    body = second.json()["detail"]
-    assert "duplicate_of" in body
+    assert second.status_code == 201
+    stored_path = Path(first.json()["stored_path"])
+    lines = stored_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
 
 
 def test_ingest_accepts_legacy_single_category_payload(tmp_path):
@@ -127,8 +128,7 @@ def _process_payload():
 def test_process_article_runs_pipeline(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article, *, skip_duplicate=False):
-        assert skip_duplicate is False
+    def fake_pipeline(article):
         return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl")
 
     monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
@@ -142,25 +142,10 @@ def test_process_article_runs_pipeline(monkeypatch, tmp_path):
     assert data["duplicate_of"] is None
 
 
-def test_process_article_marks_duplicate(monkeypatch, tmp_path):
-    client = make_client(tmp_path)
-
-    def fake_pipeline(article, *, skip_duplicate=False):
-        return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl", duplicate_of="abc123")
-
-    monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
-
-    resp = client.post("/process/article", json=_process_payload())
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "duplicate"
-    assert data["duplicate_of"] == "abc123"
-
-
 def test_process_article_parses_rfc3339_z_published_at(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article, *, skip_duplicate=False):
+    def fake_pipeline(article):
         assert article.published_at is not None
         assert article.published_at.year == 2025
         assert article.published_at.month == 12
@@ -179,7 +164,7 @@ def test_process_article_parses_rfc3339_z_published_at(monkeypatch, tmp_path):
 def test_process_article_rejects_invalid_published_at(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article, *, skip_duplicate=False):
+    def fake_pipeline(article):
         raise AssertionError("pipeline should not be called when payload is invalid")
 
     monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
@@ -189,39 +174,3 @@ def test_process_article_rejects_invalid_published_at(monkeypatch, tmp_path):
     resp = client.post("/process/article", json=payload)
     assert resp.status_code == 400
     assert "published_at" in resp.json()["detail"]
-
-
-def test_process_article_skip_duplicate_for_url_sets_flag(monkeypatch, tmp_path):
-    client = make_client(tmp_path)
-
-    def fake_pipeline(article, *, skip_duplicate=False):
-        assert skip_duplicate is True
-        return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl")
-
-    monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
-
-    payload = _process_payload()
-    resp = client.post(
-        "/process/article",
-        params={"skip_duplicate_for_url": payload["url"]},
-        json=payload,
-    )
-    assert resp.status_code == 201
-
-
-def test_process_article_skip_duplicate_for_url_mismatch_rejects(monkeypatch, tmp_path):
-    client = make_client(tmp_path)
-
-    def fake_pipeline(article, *, skip_duplicate=False):
-        raise AssertionError("pipeline should not be called when URL does not match")
-
-    monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
-
-    payload = _process_payload()
-    resp = client.post(
-        "/process/article",
-        params={"skip_duplicate_for_url": "https://example.com/other"},
-        json=payload,
-    )
-    assert resp.status_code == 400
-    assert "skip_duplicate_for_url" in resp.json()["detail"]

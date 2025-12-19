@@ -42,16 +42,6 @@ def _collect_article_paths(inputs: List[Path]) -> List[Path]:
     return paths
 
 
-def _is_debug_fixture(path: Optional[Path]) -> bool:
-    if path is None:
-        return False
-    debug_root = Path(__file__).resolve().parents[2] / "data" / "samples" / "debug"
-    try:
-        return path.resolve().is_relative_to(debug_root)
-    except AttributeError:  # python <3.9 fallback
-        return str(debug_root) in str(path.resolve())
-
-
 def _to_plain(value: Any) -> Any:
     """
     Convert dataclasses, Paths, and date-like objects into JSON-serializable primitives.
@@ -103,19 +93,6 @@ def run(
         "-o",
         help="Optional path to write output (.md or .json). Defaults to stdout (Markdown).",
     ),
-    skip_duplicate: bool = typer.Option(
-        False,
-        "--skip-duplicate",
-        help="Bypass duplicate URL detection for this run (use with care).",
-    ),
-    skip_duplicate_for_url: List[str] = typer.Option(
-        [],
-        "--skip-duplicate-for-url",
-        help=(
-            "Bypass duplicate detection only when the article URL exactly matches one of "
-            "these values. If provided and the URL does not match, the command errors."
-        ),
-    ),
     mode: str = typer.Option(
         "agent",
         "--mode",
@@ -143,22 +120,9 @@ def run(
         return
 
     article = _load_article(path)
-    is_debug_fixture = _is_debug_fixture(path)
-
-    article_url = str(article.url)
-    if skip_duplicate_for_url and article_url not in skip_duplicate_for_url:
-        raise typer.BadParameter(
-            "skip-duplicate-for-url was provided but does not match the article URL "
-            f"({article_url})."
-        )
-    effective_skip_duplicate = (
-        is_debug_fixture
-        or skip_duplicate
-        or (skip_duplicate_for_url and article_url in skip_duplicate_for_url)
-    )
 
     def ingest_wrapper(a, cls, summary):
-        return ingest_article(a, cls, summary, skip_duplicate=effective_skip_duplicate)
+        return ingest_article(a, cls, summary)
 
     mode_normalized = mode.lower()
     if mode_normalized not in {"agent", "direct"}:
@@ -168,20 +132,13 @@ def run(
         if trace or trace_path:
             resolved_trace = trace_path or _default_trace_path()
             os.environ["AGENT_TRACE_PATH"] = str(resolved_trace)
-        result = run_with_agent(article, skip_duplicate=effective_skip_duplicate)
+        result = run_with_agent(article)
     else:
         if trace or trace_path:
             raise typer.BadParameter("Trace logging is only available in --mode agent.")
         result = process_article(article, ingest_fn=ingest_wrapper)
 
-    if result.ingest.duplicate_of:
-        rprint(
-            "[yellow]Duplicate detected; matches "
-            f"{result.ingest.duplicate_of}. Stored path: "
-            f"{result.ingest.stored_path}[/yellow]"
-        )
-    else:
-        rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
+    rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
 
     if out:
         _write_output(out, result.markdown, _to_plain(result))
@@ -214,20 +171,6 @@ def batch_command(
         "--concurrency",
         "-c",
         help="Number of articles to process in parallel.",
-    ),
-    skip_duplicate: bool = typer.Option(
-        False,
-        "--skip-duplicate",
-        help="Bypass duplicate URL detection for this run (use with care).",
-    ),
-    skip_duplicate_for_url: List[str] = typer.Option(
-        [],
-        "--skip-duplicate-for-url",
-        help=(
-            "Bypass duplicate detection only when the article URL exactly matches one of "
-            "these values. If provided and the URL does not match, that article is skipped "
-            "with an error."
-        ),
     ),
     mode: str = typer.Option(
         "agent",
@@ -276,7 +219,7 @@ def batch_command(
         raise typer.BadParameter("Trace logging is only available in --mode agent.")
 
     outcomes: list[dict | None] = [None] * len(paths)
-    tasks: list[tuple[int, Path, Article, bool]] = []
+    tasks: list[tuple[int, Path, Article]] = []
 
     for idx, path in enumerate(paths):
         try:
@@ -285,41 +228,16 @@ def batch_command(
             outcomes[idx] = {"index": idx, "path": path, "result": None, "error": str(exc)}
             continue
 
-        article_url = str(article.url)
-        is_debug_fixture = _is_debug_fixture(path)
-        if (
-            skip_duplicate_for_url
-            and not skip_duplicate
-            and not is_debug_fixture
-            and article_url not in skip_duplicate_for_url
-        ):
-            outcomes[idx] = {
-                "index": idx,
-                "path": path,
-                "result": None,
-                "error": (
-                    "skip-duplicate-for-url was provided but does not match the article URL "
-                    f"({article_url})."
-                ),
-            }
-            continue
-
-        effective_skip_duplicate = (
-            is_debug_fixture
-            or skip_duplicate
-            or (skip_duplicate_for_url and article_url in skip_duplicate_for_url)
-        )
-        tasks.append((idx, path, article, effective_skip_duplicate))
+        tasks.append((idx, path, article))
 
     if tasks:
         if mode_normalized == "agent":
             batch = run_with_agent_batch(
                 [task[2] for task in tasks],
-                skip_duplicate=[task[3] for task in tasks],
                 max_workers=concurrency,
             )
             for task, item in zip(tasks, batch.items):
-                idx, path, _, _ = task
+                idx, path, _ = task
                 outcomes[idx] = {
                     "index": idx,
                     "path": path,
@@ -329,16 +247,16 @@ def batch_command(
         else:
             worker_count = min(concurrency, len(tasks))
 
-            def _run_direct(article: Article, skip_dupe: bool):
+            def _run_direct(article: Article):
                 def ingest_wrapper(a, cls, summary):
-                    return ingest_article(a, cls, summary, skip_duplicate=skip_dupe)
+                    return ingest_article(a, cls, summary)
 
                 return process_article(article, ingest_fn=ingest_wrapper)
 
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 future_map = {
-                    executor.submit(_run_direct, article, skip_dupe): idx
-                    for idx, _, article, skip_dupe in tasks
+                    executor.submit(_run_direct, article): idx
+                    for idx, _, article in tasks
                 }
                 for future in as_completed(future_map):
                     idx = future_map[future]
@@ -372,14 +290,7 @@ def batch_command(
         if error:
             rprint(f"[red]Failed {path}: {error}[/red]")
             continue
-        if result.ingest.duplicate_of:
-            rprint(
-                "[yellow]Duplicate detected; matches "
-                f"{result.ingest.duplicate_of}. Stored path: "
-                f"{result.ingest.stored_path}[/yellow]"
-            )
-        else:
-            rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
+        rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
 
         if outdir:
             out_path = _batch_output_path(outdir, path, idx, fmt)

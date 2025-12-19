@@ -386,6 +386,39 @@ def test_summarize_article_omits_temperature_for_gpt5mini(monkeypatch):
     assert result.bullets == ["bullet one", "bullet two"]
 
 
+def test_summarize_article_omits_max_output_tokens_when_disabled(monkeypatch):
+    from news_coverage import workflow
+
+    article = Article(
+        title="Sample Story",
+        source="Demo",
+        url="https://example.com",
+        content="A24 and Lionsgate expand their partnership.",
+    )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("SUMMARIZER_MODEL", "gpt-5-mini")
+    monkeypatch.setenv("MAX_TOKENS", "0")
+    monkeypatch.setattr(workflow, "_load_prompt_file", lambda _: "Prompt")
+
+    captured = {}
+
+    class DummyResponse:
+        output_text = "- bullet one\n- bullet two"
+
+    class DummyResponses:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return DummyResponse()
+
+    class DummyClient:
+        responses = DummyResponses()
+
+    summarize_article(article, "commentary.txt", DummyClient())
+
+    assert "max_output_tokens" not in captured
+
+
 def test_summarize_article_raises_on_incomplete_response(monkeypatch):
     from news_coverage import workflow
 

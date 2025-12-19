@@ -9,7 +9,7 @@ from news_coverage.workflow import (
 )
 
 
-def test_ingest_article_can_skip_duplicates(tmp_path, monkeypatch):
+def test_ingest_article_allows_duplicates(tmp_path, monkeypatch):
     monkeypatch.setenv("INGEST_DATA_DIR", str(tmp_path))
 
     article = Article(
@@ -35,8 +35,8 @@ def test_ingest_article_can_skip_duplicates(tmp_path, monkeypatch):
     assert path.exists()
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1
 
-    # Second write with skip_duplicate=True should append instead of flagging a duplicate.
-    second = ingest_article(article, classification, summary, skip_duplicate=True)
+    # Second write should append even when the URL matches.
+    second = ingest_article(article, classification, summary)
     assert second.duplicate_of is None
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2

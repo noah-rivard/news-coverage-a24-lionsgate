@@ -38,7 +38,6 @@ class PipelineContext:
 
     article: Article
     client: OpenAI
-    skip_duplicate: bool = False
     classification: ClassificationResult | None = None
     summary: SummaryResult | None = None
     markdown: str | None = None
@@ -223,14 +222,13 @@ def _make_tools(context: PipelineContext):
 
     @function_tool(name_override="ingest_article")
     def ingest() -> dict:
-        """Validate and store the article; respects skip_duplicate flag in context."""
+        """Validate and store the article."""
         if context.classification is None or context.summary is None:
             raise RuntimeError("Classification and summary required before ingest.")
         context.ingest = ingest_article(
             context.article,
             context.classification,
             context.summary,
-            skip_duplicate=context.skip_duplicate,
         )
         payload = {
             "stored_path": str(context.ingest.stored_path),
@@ -245,8 +243,6 @@ def _make_tools(context: PipelineContext):
 def run_with_agent(
     article: Article,
     client: Optional[OpenAI] = None,
-    *,
-    skip_duplicate: bool = False,
     runner: Optional[Runner] = None,
 ) -> PipelineResult:
     """
@@ -257,7 +253,7 @@ def run_with_agent(
     """
     settings = get_settings()
     sync_client, async_client = _build_clients(client)
-    context = PipelineContext(article=article, client=sync_client, skip_duplicate=skip_duplicate)
+    context = PipelineContext(article=article, client=sync_client)
 
     tools = _make_tools(context)
     instructions = (
@@ -312,8 +308,7 @@ def run_with_agent(
         )
         _append_trace_log(trace_text, settings.agent_trace_path)
 
-    if not context.ingest.duplicate_of:
-        append_final_output_entry(article, context.classification, context.summary)
+    append_final_output_entry(article, context.classification, context.summary)
 
     return PipelineResult(
         markdown=markdown_text,
@@ -325,8 +320,6 @@ def run_with_agent(
 
 def run_with_agent_batch(
     articles: list[Article],
-    *,
-    skip_duplicate: bool | list[bool] = False,
     max_workers: int = 4,
     runner_factory: Callable[[], Runner] | None = None,
 ) -> BatchRunResult:
@@ -341,19 +334,12 @@ def run_with_agent_batch(
     if not articles:
         return BatchRunResult(items=[])
 
-    if isinstance(skip_duplicate, list):
-        if len(skip_duplicate) != len(articles):
-            raise ValueError("skip_duplicate list must match number of articles.")
-        skip_flags = list(skip_duplicate)
-    else:
-        skip_flags = [skip_duplicate] * len(articles)
-
     worker_count = min(max_workers, len(articles))
     outcomes: list[BatchItemResult | None] = [None] * len(articles)
 
     def _run_single(idx: int, article: Article) -> PipelineResult:
         runner = runner_factory() if runner_factory else None
-        return run_with_agent(article, skip_duplicate=skip_flags[idx], runner=runner)
+        return run_with_agent(article, runner=runner)
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_map = {

@@ -98,7 +98,7 @@ def build_reports(
     output_dir.mkdir(parents=True, exist_ok=True)
     for path in _collect_article_paths(article_paths):
         article = _load_article_file(path)
-        run = run_with_agent(article, skip_duplicate=True)
+        run = run_with_agent(article)
         facts = run.summary.facts or [
             {
                 "category_path": run.classification.category,

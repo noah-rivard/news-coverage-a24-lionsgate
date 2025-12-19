@@ -151,7 +151,7 @@
     },
     "duplicate_of": {
       "type": "string",
-      "description": "Existing article ID or URL this duplicates, if detected."
+      "description": "Reserved for future de-duplication; not populated by the ingest service."
     },
     "facts": {
       "type": "array",

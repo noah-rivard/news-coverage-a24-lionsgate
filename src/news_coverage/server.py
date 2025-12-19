@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,31 +59,17 @@ def _jsonl_path(company: str, quarter: str) -> Path:
     return root / company / f"{quarter}.jsonl"
 
 
-def _is_duplicate(path: Path, url: str) -> str | None:
-    """Return stored id if the URL already exists in the JSONL file."""
-    if not path.exists():
-        return None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if record.get("url") == url:
-            return record.get("id") or record.get("url")
-    return None
-
-
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _run_article_pipeline(article: Article, *, skip_duplicate: bool = False):
+def _run_article_pipeline(article: Article):
     """
     Lazy import wrapper to avoid circular import between server and workflow/agent_runner.
     """
     from .agent_runner import run_with_agent
 
-    return run_with_agent(article, skip_duplicate=skip_duplicate)
+    return run_with_agent(article)
 
 
 def _normalize_article_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -176,7 +162,7 @@ def _normalize_ingest_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def _parse_published_at(raw: Optional[str | datetime]) -> Optional[datetime]:
+def _parse_published_at(raw: str | datetime | None) -> datetime | None:
     if raw is None:
         return None
     if isinstance(raw, datetime):
@@ -227,13 +213,6 @@ def ingest_article(payload: Dict[str, Any]) -> JSONResponse:
 
     path = _jsonl_path(validated["company"], validated["quarter"])
     with locked_path(path):
-        duplicate_id = _is_duplicate(path, validated["url"])
-        if duplicate_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"status": "error", "duplicate_of": duplicate_id},
-            )
-
         _ensure_parent(path)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(validated, ensure_ascii=False))
@@ -251,12 +230,10 @@ def ingest_article(payload: Dict[str, Any]) -> JSONResponse:
 @app.post("/process/article", status_code=status.HTTP_201_CREATED)
 def process_article(
     payload: Dict[str, Any],
-    skip_duplicate: bool = False,
-    skip_duplicate_for_url: Optional[str] = None,
 ) -> JSONResponse:
     """
     End-to-end processing endpoint: classify -> summarize -> format -> ingest via manager agent.
-    Returns markdown and ingest metadata; duplicates return 200 with duplicate_of set.
+    Returns markdown and ingest metadata.
     """
     try:
         normalized = _normalize_article_payload(payload)
@@ -269,18 +246,8 @@ def process_article(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
-    if skip_duplicate_for_url and skip_duplicate_for_url != str(article.url):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "skip_duplicate_for_url was provided but does not match the payload url "
-                f"({article.url})."
-            ),
-        )
-
     try:
-        effective_skip_duplicate = bool(skip_duplicate) or bool(skip_duplicate_for_url)
-        result = _run_article_pipeline(article, skip_duplicate=effective_skip_duplicate)
+        result = _run_article_pipeline(article)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -290,15 +257,13 @@ def process_article(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
 
-    duplicate_of = getattr(result.ingest, "duplicate_of", None)
     body = {
-        "status": "duplicate" if duplicate_of else "processed",
+        "status": "processed",
         "markdown": result.markdown,
         "stored_path": str(result.ingest.stored_path),
-        "duplicate_of": duplicate_of,
+        "duplicate_of": getattr(result.ingest, "duplicate_of", None),
     }
-    status_code = status.HTTP_200_OK if duplicate_of else status.HTTP_201_CREATED
-    return JSONResponse(status_code=status_code, content=body)
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
 
 
 if __name__ == "__main__":

@@ -18,11 +18,9 @@ Base URL: to be configured by the user (e.g., http://localhost:8000). All endpoi
   - `quarter` must match `YYYY Q[1-4]`.
   - Each `facts[]` object must include: fact_id, category_path, section, content_line, summary_bullets.
   - Facts may also include subheading/company/quarter/published_at overrides, but typical runs inherit company/quarter/published_at from the article level.
-  - Duplicate handling: the server should reject exact-URL duplicates with `409 Conflict` and include `duplicate_of` in the response.
 - Responses:
   - `201 Created` with body `{ "status": "stored", "id": "<uuid>", "stored_path": "data/ingest/{company}/{quarter}.jsonl", "normalized_quarter": "YYYY Q#" }`.
   - `400 Bad Request` on schema validation errors; body contains `errors: [...]`.
-  - `409 Conflict` on duplicate URL/ID; body contains `duplicate_of`.
 
 Legacy compatibility:
 - The server accepts legacy single-category payloads that included top-level `section` and `subheading` (plus optional `summary` / `bullet_points`). When `facts` is missing, the server synthesizes a single `facts[0]` entry and drops the legacy keys before validation.
@@ -36,6 +34,7 @@ Legacy compatibility:
 - Accepted articles are appended to `data/ingest/{company}/{quarter}.jsonl` in UTF-8 JSONL.
 - Each line must be a full CoverageArticle with server-assigned `id` (UUID v4) and `captured_at` timestamp (UTC ISO).
 - Server must preserve client-supplied `ingest_source` and `ingest_version` for auditing.
+- The server does not de-duplicate; repeated URLs are stored as additional lines.
 
 ## Error model
 - All error responses: `application/json` with `{ "status": "error", "message": "...", "errors?": [ { "field": "...", "issue": "..." } ] }`.
@@ -46,9 +45,6 @@ Legacy compatibility:
 ## Rate and size limits
 - Max body size: 1 MB per request (reject with `413 Payload Too Large`).
 - Soft rate limit suggestion: 60 requests/minute per IP; respond `429` when exceeded.
-
-## Deduping rules
-- A payload is a duplicate if `url` matches an already stored record for the same company OR if the normalized body hash matches an existing record. Duplicate returns `409` with `duplicate_of` pointing to the stored `id` or `url`.
 
 ## Alignment with schema
 - The server must validate requests directly against `docs/templates/coverage_schema.json`. Any enum additions there automatically extend the API without code changes in clients.

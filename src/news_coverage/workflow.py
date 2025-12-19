@@ -26,7 +26,7 @@ from .buyer_routing import BUYER_KEYWORDS, match_buyers
 from .file_lock import locked_path
 from .models import Article
 from .schema import validate_article_payload
-from .server import _ensure_parent, _is_duplicate, _jsonl_path
+from .server import _ensure_parent, _jsonl_path
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 _DATE_TEXT_PATTERN = r"(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(\d{2}|\d{4}))?"
@@ -266,11 +266,12 @@ def _response_text_or_raise(response: object, *, step: str) -> str:
     if status == "incomplete":
         details = getattr(response, "incomplete_details", None)
         reason = getattr(details, "reason", None) if details else None
-        hint = (
-            " Increase MAX_TOKENS or reduce the article length."
-            if reason == "max_output_tokens"
-            else ""
-        )
+        hint = ""
+        if reason == "max_output_tokens":
+            hint = (
+                " Increase MAX_TOKENS, unset it (or set to 0) to remove the cap, "
+                "or reduce the article length."
+            )
         raise RuntimeError(
             f"{step} response incomplete (reason={reason}).{hint}"
         )
@@ -497,8 +498,9 @@ def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> Sum
             {"role": "system", "content": prompt_text},
             {"role": "user", "content": user_message},
         ],
-        "max_output_tokens": settings.max_tokens,
     }
+    if settings.max_tokens and settings.max_tokens > 0:
+        request_kwargs["max_output_tokens"] = settings.max_tokens
     # gpt-5-mini rejects the temperature parameter; omit it for compatibility.
     if settings.summarizer_model != "gpt-5-mini":
         request_kwargs["temperature"] = settings.temperature
@@ -556,8 +558,9 @@ def summarize_articles_batch(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n\n".join(user_sections)},
         ],
-        "max_output_tokens": settings.max_tokens * max(1, len(articles)),
     }
+    if settings.max_tokens and settings.max_tokens > 0:
+        request_kwargs["max_output_tokens"] = settings.max_tokens * max(1, len(articles))
     if settings.summarizer_model != "gpt-5-mini":
         request_kwargs["temperature"] = settings.temperature
 
@@ -768,8 +771,6 @@ def ingest_article(
     article: Article,
     classification: ClassificationResult,
     summary: SummaryResult,
-    *,
-    skip_duplicate: bool = False,
 ) -> IngestResult:
     facts = _facts_for_article(article, classification, summary)
     schema_payload = {
@@ -802,10 +803,6 @@ def ingest_article(
     validated = validate_article_payload(schema_payload)
     path = _jsonl_path(validated["company"], validated["quarter"])
     with locked_path(path):
-        duplicate_id = None if skip_duplicate else _is_duplicate(path, validated["url"])
-        if duplicate_id:
-            return IngestResult(stored_path=path, duplicate_of=duplicate_id)
-
         _ensure_parent(path)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(validated, ensure_ascii=False))
@@ -946,7 +943,7 @@ def process_article(
     """
     Run the full pipeline for a single article.
 
-    Raises on any failure. If a duplicate is detected, returns result with duplicate_of set.
+    Raises on any failure. Always ingests and appends the result.
     """
     settings = get_settings()
     classifier_fn = classifier_fn or classify_article
@@ -970,8 +967,7 @@ def process_article(
     markdown = active_formatter(article, classification, summary)
     ingest_result = ingest_fn(article, classification, summary)
 
-    if not ingest_result.duplicate_of:
-        append_final_output_entry(article, classification, summary)
+    append_final_output_entry(article, classification, summary)
 
     return PipelineResult(
         markdown=markdown,
