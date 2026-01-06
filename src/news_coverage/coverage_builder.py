@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import date
 from dataclasses import dataclass, field
@@ -43,6 +44,8 @@ def _infer_medium(category_path: str) -> str:
         return "Film"
     if "tv" in lower or "television" in lower or "series" in lower:
         return "TV"
+    if "specials" in lower:
+        return "Specials"
     if "international" in lower:
         return "International"
     if "sports" in lower or "podcast" in lower:
@@ -50,28 +53,83 @@ def _infer_medium(category_path: str) -> str:
     return "General"
 
 
+def _as_fact_dict(fact) -> dict:
+    if dataclasses.is_dataclass(fact):
+        return dataclasses.asdict(fact)
+    if isinstance(fact, dict):
+        return fact
+    raise TypeError(f"Unsupported fact type: {type(fact)!r}")
+
+
+def _is_content_list_fact(fact: dict) -> bool:
+    if fact.get("section") != "Content / Deals / Distribution":
+        return False
+    return fact.get("subheading") in {
+        "Development",
+        "Greenlights",
+        "Pickups",
+        "Dating",
+        "Renewals",
+        "Cancellations",
+    }
+
+
+def _is_interview_or_commentary_fact(fact: dict) -> bool:
+    content_line = (fact.get("content_line") or "").strip().lower()
+    return content_line.startswith("interview:") or content_line.startswith("commentary:")
+
+
 def _build_coverage_entry(article: Article, fact) -> CoverageEntry:
-    published_at = fact.get("published_at") or (
+    fact_dict = _as_fact_dict(fact)
+    published_at = fact_dict.get("published_at") or (
         article.published_at.date() if article.published_at else None
     )
     if isinstance(published_at, str):
         published_at = date.fromisoformat(published_at)
     if not published_at:
         raise ValueError("Published date missing.")
-    category_path = fact["category_path"]
-    section = fact["section"]
-    subheading = fact.get("subheading")
-    summary_bullets = fact.get("summary_bullets") or []
-    summary = " ".join(summary_bullets[:3]) if summary_bullets else ""
+    category_path = fact_dict["category_path"]
+    section = fact_dict["section"]
+    subheading = fact_dict.get("subheading")
+    summary_bullets = list(fact_dict.get("summary_bullets") or [])
+    content_line = (fact_dict.get("content_line") or "").strip()
+    is_list_fact = _is_content_list_fact(fact_dict) and ":" in content_line
+    is_interview_fact = _is_interview_or_commentary_fact(fact_dict)
+    is_general_news_fact = (
+        fact_dict.get("subheading") == "General News & Strategy"
+        and fact_dict.get("section")
+        in {"Content / Deals / Distribution", "Strategy & Miscellaneous News"}
+        and bool(content_line)
+    )
+    is_non_content_fact = (
+        fact_dict.get("section") in {"Org", "M&A", "Investor Relations", "Highlights"}
+        and bool(content_line)
+    )
+    if is_list_fact:
+        title = content_line
+        summary_lines = [line.strip() for line in summary_bullets[1:2] if (line or "").strip()]
+    elif is_interview_fact:
+        title = content_line or article.title
+        summary_lines = [line.strip() for line in summary_bullets[1:] if (line or "").strip()]
+    elif is_general_news_fact:
+        title = content_line
+        summary_lines = [line.strip() for line in summary_bullets[1:4] if (line or "").strip()]
+    elif is_non_content_fact:
+        title = content_line
+        summary_lines = [line.strip() for line in summary_bullets[1:4] if (line or "").strip()]
+    else:
+        title = article.title
+        summary = " ".join([b.strip() for b in summary_bullets[:3] if (b or "").strip()])
+        summary_lines = [summary] if summary else []
     medium = _infer_medium(category_path)
     return CoverageEntry(
-        title=article.title,
+        title=title,
         url=str(article.url),
         published_at=published_at,
         section=section,
         subheading=subheading,
         medium=medium,
-        summary=summary,
+        summary_lines=summary_lines,
     )
 
 

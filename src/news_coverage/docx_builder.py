@@ -15,6 +15,7 @@ from docx.shared import Pt
 
 
 SECTION_TITLES: List[Tuple[str, str]] = [
+    ("Highlights", "Highlights From The Quarter"),
     ("Org", "Org"),
     ("Content / Deals / Distribution", "Content, Deals & Distribution"),
     ("Strategy & Miscellaneous News", "Strategy & Miscellaneous News"),
@@ -22,7 +23,7 @@ SECTION_TITLES: List[Tuple[str, str]] = [
     ("M&A", "M&A"),
 ]
 
-MEDIUM_ORDER = ("Film", "TV", "International", "Sports/Podcasts", "General")
+MEDIUM_ORDER = ("Film", "TV", "Specials", "International", "Sports/Podcasts", "General")
 
 
 @dataclass
@@ -33,7 +34,7 @@ class CoverageEntry:
     section: str
     subheading: str | None
     medium: str
-    summary: str
+    summary_lines: List[str]
 
 
 @dataclass
@@ -60,18 +61,26 @@ def _format_md(dt: date) -> str:
     return f"{dt.month}/{dt.day}"
 
 
-def _group_entries(entries: Sequence[CoverageEntry]) -> Dict[str, Dict[str, List[CoverageEntry]]]:
+def _group_entries(
+    entries: Sequence[CoverageEntry],
+) -> Dict[str, Dict[str, Dict[str, List[CoverageEntry]]]]:
     """
-    Group entries by section -> medium, sorted newest to oldest.
-    Returns nested dict: {section: {medium: [entries...]}}
+    Group entries by section -> medium -> subheading, sorted newest to oldest.
+    Returns nested dict: {section: {medium: {subheading: [entries...]}}}
     """
-    grouped: Dict[str, Dict[str, List[CoverageEntry]]] = defaultdict(lambda: defaultdict(list))
+    grouped: Dict[str, Dict[str, Dict[str, List[CoverageEntry]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
     for e in entries:
-        grouped[e.section][e.medium].append(e)
+        sub = (e.subheading or "General News & Strategy").strip() or "General News & Strategy"
+        grouped[e.section][e.medium][sub].append(e)
 
     for section_map in grouped.values():
-        for medium, items in section_map.items():
-            section_map[medium] = sorted(items, key=lambda i: i.published_at, reverse=True)
+        for medium_map in section_map.values():
+            for subheading, items in medium_map.items():
+                medium_map[subheading] = sorted(
+                    items, key=lambda i: i.published_at, reverse=True
+                )
     return grouped
 
 
@@ -96,6 +105,35 @@ def build_docx(report: BuyerReport, output_path: Path, quarter_label: str) -> No
     doc = Document()
     _set_title_styles(doc)
 
+    def _safe_add_paragraph(*, text: str = "", style: str | None = None):
+        if style is None:
+            return doc.add_paragraph(text)
+        try:
+            return doc.add_paragraph(text, style=style)
+        except KeyError:
+            return doc.add_paragraph(text)
+
+    def _safe_add_heading(text: str, level: int):
+        try:
+            return doc.add_heading(text, level=level)
+        except KeyError:
+            return doc.add_heading(text, level=level)
+
+    def _ordered_subheadings(sub_map: Dict[str, List[CoverageEntry]]) -> List[str]:
+        preferred = [
+            "General News & Strategy",
+            "Development",
+            "Pickups",
+            "Dating",
+            "Greenlights",
+            "Renewals",
+            "Cancellations",
+        ]
+        preferred_set = set(preferred)
+        ordered = [s for s in preferred if s in sub_map]
+        extras = sorted([s for s in sub_map.keys() if s not in preferred_set])
+        return ordered + extras
+
     # Cover/header
     title = doc.add_heading(f"{quarter_label} News & Updates", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -105,7 +143,7 @@ def build_docx(report: BuyerReport, output_path: Path, quarter_label: str) -> No
 
     grouped = _group_entries(report.entries)
 
-    for idx, (section_key, section_display) in enumerate(SECTION_TITLES, start=1):
+    for idx, (section_key, section_display) in enumerate(SECTION_TITLES, start=0):
         if section_key not in grouped:
             continue
         doc.add_heading(f"{idx}. {section_display}", level=1)
@@ -121,14 +159,58 @@ def build_docx(report: BuyerReport, output_path: Path, quarter_label: str) -> No
             if medium not in section_entries:
                 continue
             if section_key in {"Content / Deals / Distribution", "Strategy & Miscellaneous News"}:
-                doc.add_heading(medium, level=2)
-            for entry in section_entries[medium]:
-                bullet = doc.add_paragraph(style="List Bullet")
-                bullet.add_run(f"{entry.title} ({_format_md(entry.published_at)})")
-                if entry.subheading:
-                    bullet.add_run(f" — {entry.subheading}")
-                summary_para = doc.add_paragraph(entry.summary)
-                summary_para.style = "List Bullet"
+                _safe_add_heading(medium, level=2)
+                medium_map = section_entries[medium]
+                for subheading in _ordered_subheadings(medium_map):
+                    sub_para = _safe_add_paragraph(text=subheading, style="No Spacing")
+                    if sub_para.runs:
+                        sub_para.runs[0].bold = True
+                    else:
+                        sub_para.add_run(subheading).bold = True
+
+                    for entry in medium_map[subheading]:
+                        line_para = _safe_add_paragraph(style="No Spacing")
+                        if ":" in entry.title:
+                            left, right = entry.title.split(":", 1)
+                            label = left.strip()
+                            remainder = right.lstrip()
+                            if label.lower() in {"interview", "commentary"}:
+                                label_run = line_para.add_run(f"{label}:")
+                                label_run.italic = True
+                                remainder_run = line_para.add_run(
+                                    f" {remainder} ({_format_md(entry.published_at)})"
+                                )
+                                remainder_run.bold = True
+                            else:
+                                label_run = line_para.add_run(f"{label}:")
+                                label_run.bold = True
+                                label_run.italic = True
+                                line_para.add_run(
+                                    f" {remainder} ({_format_md(entry.published_at)})"
+                                )
+                        else:
+                            line_para.add_run(
+                                f"{entry.title} ({_format_md(entry.published_at)})"
+                            )
+
+                        for line in entry.summary_lines:
+                            if (line or "").strip():
+                                _safe_add_paragraph(text=line.strip(), style="No Spacing")
+            else:
+                medium_map = section_entries[medium]
+                for subheading, entries in medium_map.items():
+                    if section_key != "Highlights":
+                        _safe_add_heading(subheading, level=2)
+                    for entry in entries:
+                        bullet = _safe_add_paragraph(style="List Paragraph")
+                        bullet.add_run(f"{entry.title} ({_format_md(entry.published_at)})")
+                        for line in entry.summary_lines:
+                            if not (line or "").strip():
+                                continue
+                            _safe_add_paragraph(
+                                text=line.strip(),
+                                style="List Paragraph",
+                            )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(output_path)

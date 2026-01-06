@@ -8,6 +8,7 @@ from news_coverage.workflow import (
     IngestResult,
     PipelineResult,
     SummaryResult,
+    _assemble_facts,
     append_final_output_entry,
     format_markdown,
     format_final_output_entry,
@@ -225,6 +226,260 @@ def test_format_final_output_entry_uses_fallback_fact_when_summary_empty():
         "Content:\n- Headline-only story ([12/16](https://example.com/headline-only))"
         in entry
     )
+
+
+def test_assemble_facts_groups_optional_note_for_content_list_items():
+    article = Article(
+        title="Deadline list article",
+        source="Deadline",
+        url="https://example.com/list",
+        content="List content.",
+        published_at=datetime(2025, 10, 24, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> Film -> Pickups",
+        section="Content / Deals / Distribution",
+        subheading="Pickups",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        "Wuthering Heights: Warner Bros. Pictures, drama",
+        "The studio won the package by committing a healthy P&A spend.",
+        "Animal Friends: Warner Bros. Pictures, road trip adventure",
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 2
+    assert facts[0].content_line == bullets[0]
+    assert facts[0].summary_bullets == [bullets[0], bullets[1]]
+    assert facts[1].content_line == bullets[2]
+    assert facts[1].summary_bullets == [bullets[2]]
+
+
+def test_assemble_facts_groups_interview_into_single_fact():
+    article = Article(
+        title="Interview source article headline",
+        source="Demo",
+        url="https://example.com/interview",
+        content="Interview content.",
+        published_at=datetime(2025, 10, 24, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals, Distribution -> TV -> General News & Strategy",
+        section="Content / Deals / Distribution",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        (
+            "Interview: Kathleen Finch, exiting Chairman and CEO of US Networks "
+            "at Warner Bros. Discovery"
+        ),
+        "Finch played a key role in shaping content strategy at Food Network and HGTV.",
+        (
+            "Her successor, Channing Dungey, will inherit a strategy focused on "
+            "maximizing audience reach."
+        ),
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 1
+    assert facts[0].content_line == bullets[0]
+    assert facts[0].summary_bullets == bullets
+
+
+def test_assemble_facts_splits_tv_gns_lines_into_separate_fact():
+    article = Article(
+        title="Hybrid exec-change story",
+        source="Demo",
+        url="https://example.com/hybrid",
+        content="Hybrid content.",
+        published_at=datetime(2025, 10, 24, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Org -> Exec Changes",
+        section="Org",
+        subheading="Exec Changes",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        "Exit: Kathleen Finch, Chairman and CEO, US Networks at Warner Bros. Discovery",
+        (
+            "TV GNS: Finch said cable networks must keep delivering broad hits while rights costs "
+            "rise."
+        ),
+        (
+            "TV GNS: WBD is focusing on making Max complementary to linear networks instead of "
+            "chasing every genre."
+        ),
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 2
+    assert facts[0].category_path == "Org -> Exec Changes"
+    assert facts[0].content_line.startswith("Exit:")
+    assert (
+        facts[1].category_path
+        == "Content, Deals & Distribution -> TV -> General News & Strategy"
+    )
+    assert facts[1].content_line.startswith("Finch said cable networks")
+    assert len(facts[1].summary_bullets) == 2
+
+
+def test_assemble_facts_supports_medium_specific_routing_override_lines():
+    article = Article(
+        title="Netflix shifts film strategy and greenlights specials",
+        source="Demo",
+        url="https://example.com/netflix-film-specials",
+        content="Hybrid content.",
+        published_at=datetime(2025, 11, 5, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> Film -> General News & Strategy",
+        section="Content / Deals / Distribution",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="Netflix",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        (
+            "Film GNS: Netflix is emphasizing theatrical releases for select titles "
+            "as part of its film strategy."
+        ),
+        "Specials Greenlights: Unt. Comedian A: Netflix, stand-up special",
+        "Specials Greenlights: Unt. Comedian B: Netflix, stand-up special",
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 3
+    assert any(
+        f.category_path == "Content, Deals & Distribution -> Film -> General News & Strategy"
+        for f in facts
+    )
+    assert sum(
+        1
+        for f in facts
+        if f.category_path == "Content, Deals & Distribution -> Specials -> Greenlights"
+    ) == 2
+
+
+def test_assemble_facts_supports_non_content_routing_override_lines():
+    article = Article(
+        title="Company makes a deal and reports earnings",
+        source="Demo",
+        url="https://example.com/non-content",
+        content="Hybrid content.",
+        published_at=datetime(2025, 11, 5, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> Film -> General News & Strategy",
+        section="Content / Deals / Distribution",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="Netflix",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        "M&A: Company X acquired Company Y in an all-cash deal.",
+        "The acquisition is expected to close pending regulatory approval.",
+        "Strategy: The company is shifting its distribution approach to prioritize profitability.",
+        (
+            "IR Quarterly Earnings: Management said paid sharing continued to lift subscribers "
+            "quarter-over-quarter."
+        ),
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 3
+    assert facts[0].category_path == "M&A -> General News & Strategy"
+    assert facts[0].summary_bullets == [
+        "Company X acquired Company Y in an all-cash deal.",
+        "The acquisition is expected to close pending regulatory approval.",
+    ]
+    assert (
+        facts[1].category_path
+        == "Strategy & Miscellaneous News -> General News & Strategy -> Strategy"
+    )
+    assert (
+        facts[2].category_path
+        == "Investor Relations -> General News & Strategy -> Quarterly Earnings"
+    )
+
+
+def test_assemble_facts_routes_exec_change_lines_independent_of_classifier_category():
+    article = Article(
+        title="Story about strategy and an exit",
+        source="Demo",
+        url="https://example.com/hybrid2",
+        content="Hybrid content.",
+        published_at=datetime(2025, 10, 24, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> General News & Strategy",
+        section="Content / Deals / Distribution",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        "Exit: Kathleen Finch, Chairman and CEO, U.S. Networks at Warner Bros. Discovery",
+        (
+            "Finch used her farewell to argue cable networks can still win with broad hits and "
+            "cross-platform distribution."
+        ),
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 2
+    assert facts[0].category_path == "Org -> Exec Changes"
+    assert facts[0].content_line.startswith("Exit:")
+    assert facts[1].category_path == classification.category
+
+
+def test_assemble_facts_exec_change_unprefixed_note_mode_attaches_followon(monkeypatch):
+    monkeypatch.setenv("EXEC_CHANGE_NOTE_MODE", "unprefixed")
+    article = Article(
+        title="Story about an exit",
+        source="Demo",
+        url="https://example.com/exec-note",
+        content="Hybrid content.",
+        published_at=datetime(2025, 10, 24, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> General News & Strategy",
+        section="Content / Deals / Distribution",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    bullets = [
+        "Exit: Kathleen Finch, Chairman and CEO, U.S. Networks at Warner Bros. Discovery",
+        "She will be succeeded by Channing Dungey, who will assume oversight of U.S. networks.",
+    ]
+
+    facts = _assemble_facts(bullets, classification, article)
+
+    assert len(facts) == 1
+    assert facts[0].category_path == "Org -> Exec Changes"
+    assert facts[0].summary_bullets == [
+        bullets[0],
+        bullets[1],
+    ]
 
 
 def test_format_markdown_outputs_title_category_and_date_link():

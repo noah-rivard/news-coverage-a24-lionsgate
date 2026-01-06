@@ -85,6 +85,14 @@ All notable changes to this project will be documented in this file. This projec
 - Final-output log now formats each fact’s Content as a bullet list (instead of repeating `Content:` lines), preventing downstream parsers from dropping bullets when a fact contains multiple lines.
 - Markdown formatter now renders every bullet in each fact’s `summary_bullets` and only adds the date link when missing, preventing multi-title facts from collapsing and avoiding duplicate date parentheses.
 - Backfilled the HGTV multi-show entry in `docs/templates/final_output.md` so all three titles are visible.
+- Content-list fact assembly now treats each title line as its own fact and attaches one optional follow-up note line to the same fact (instead of creating a separate low-value fact for the note).
+- DOCX builder now renders content-list entries using the fact-level title line (and optional note line) instead of repeating the source article headline for every item.
+- Interview/commentary facts now stay grouped as a single fact with a header line plus follow-on paragraphs, and the DOCX builder renders them as one entry with multiple paragraphs.
+- Hybrid articles can now produce additional medium-specific facts (e.g., `Film -> General News & Strategy`, `TV -> General News & Strategy`, `Specials -> Greenlights`) when the summarizer emits routing override lines like `Film GNS:` / `Specials Greenlights:`, enabling “AND” routing across categories instead of forcing either/or.
+- Routing-override lines now support non-Content sections as well (e.g., `M&A:`, `Strategy:`, `IR Quarterly Earnings:`), and are parsed into their own facts regardless of the classifier’s primary category and prompt routing, enabling truly routing-independent “AND” coverage when the model outputs those lines.
+- Routed facts (including non-Content facts) now support one or more follow-on note lines that stay attached to the same fact’s `summary_bullets`, preserving helpful sub-details without creating extra low-value facts.
+- DOCX generation now includes a Highlights section and uses “List Paragraph” styling for non-Content sections (Org/M&A/Investor Relations) with subheading headings, aligning more closely with the manually assembled buyer templates.
+- Exec-change note parsing can now be A/B tested via `EXEC_CHANGE_NOTE_MODE` (`prefixed` vs `unprefixed`), with `exec_changes_unprefixed_note.txt` used in unprefixed mode.
 - Final-output appender now keeps consistent spacing between entries (exactly one blank line), improving readability.
 - Content-deals formatter now detects real date parentheticals instead of any parentheses, so subtitles/alternate-title parentheses still receive the publish date.
 - Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.

@@ -13,6 +13,7 @@ and/or a provided client allow offline or preconfigured usage for tests.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -447,22 +448,456 @@ def _assemble_facts(
     """
     Turn labeled bullets into FactResult objects, preserving order.
     """
-    facts: List[FactResult] = []
-    for idx, raw in enumerate(bullets, start=1):
-        label, content = _label_from_bullet(raw)
-        category_path, section, subheading = _build_fact_category(classification.category, label)
-        fact = FactResult(
-            fact_id=f"fact-{idx}",
-            category_path=category_path,
-            section=section,
-            subheading=subheading,
-            company=classification.company,
-            quarter=classification.quarter,
-            published_at=article.published_at.date() if article.published_at else date.today(),
-            content_line=content,
-            summary_bullets=[content],
+    def _is_interview_or_commentary(lines: List[str]) -> bool:
+        if not lines:
+            return False
+        first = (lines[0] or "").strip().lower()
+        return first.startswith("interview:") or first.startswith("commentary:")
+
+    def _is_content_list_category(cls: "ClassificationResult") -> bool:
+        if cls.section != "Content / Deals / Distribution":
+            return False
+        if cls.subheading in {
+            "Development",
+            "Greenlights",
+            "Pickups",
+            "Dating",
+            "Renewals",
+            "Cancellations",
+        }:
+            return True
+        lower = (cls.category or "").lower()
+        return any(
+            token in lower
+            for token in (
+                "development",
+                "greenlights",
+                "pickups",
+                "dating",
+                "renewals",
+                "cancellations",
+            )
         )
-        facts.append(fact)
+
+    def _looks_like_title_item_line(text: str) -> bool:
+        if ":" not in text:
+            return False
+        possible, rest = text.split(":", 1)
+        possible = possible.strip()
+        rest = rest.strip()
+        if not possible or not rest:
+            return False
+        # Avoid treating explicit label prefixes (e.g., "Greenlights:") as title items.
+        if possible.lower() in FACT_LABEL_MAP:
+            return False
+        return True
+
+    published_at = article.published_at.date() if article.published_at else date.today()
+
+    cleaned = [(b or "").strip() for b in bullets if (b or "").strip()]
+
+    exec_change_note_mode = os.getenv("EXEC_CHANGE_NOTE_MODE", "prefixed").strip().lower()
+    allow_unprefixed_exec_notes = exec_change_note_mode in {"unprefixed", "unprefixed_followon"}
+
+    def _parse_note_line(text: str) -> str | None:
+        lowered = text.strip().lower()
+        if lowered.startswith("note:"):
+            return text.split(":", 1)[1].strip()
+        if lowered.startswith("note -"):
+            return text.split("-", 1)[1].strip()
+        if lowered.startswith(("note—", "note–")):
+            if "—" in text:
+                return text.split("—", 1)[1].strip()
+            return text.split("–", 1)[1].strip()
+        return None
+
+    def _normalize_category_path(path: str) -> str:
+        return " -> ".join([p.strip() for p in path.split("->") if p.strip()])
+
+    def _parse_explicit_category_path_line(text: str) -> tuple[str, str, bool] | None:
+        """
+        Parse an explicit category-path override line:
+
+          <Full Category Path> : <content line>
+
+        Where the prefix contains at least one "->" arrow. This is the most general,
+        routing-independent mechanism and works for any section (Org/M&A/IR/Strategy/etc).
+        """
+        match = re.match(r"(?is)^\s*(.+?\-\>.+?)\s*[:\-]\s*(.+?)\s*$", text)
+        if not match:
+            return None
+        raw_path, payload = match.groups()
+        payload = (payload or "").strip()
+        if not payload:
+            return None
+        category_path = _normalize_category_path(raw_path)
+        return category_path, payload, False
+
+    def _parse_content_routed_line(text: str) -> tuple[str, str, bool] | None:
+        """
+        Parse a routing override line for Content / Deals / Distribution facts.
+
+        Supported formats (case-insensitive):
+        - "<Medium> GNS: <sentence>"  (GNS == General News & Strategy)
+        - "<Medium> <Subheading>: <line>" where Subheading is one of
+          Development/Greenlights/Pickups/Dating/Renewals/Cancellations
+        - Separator may be ":" or "-" (e.g., "TV GNS - <sentence>")
+        """
+        match = re.match(
+            r"(?is)^\s*"
+            r"(tv|film|specials|international|sports|podcasts)\s+"
+            r"(gns|general\s+news\s*&\s*strategy|development|greenlights|pickups|dating|renewals|"
+            r"cancellations)\s*"
+            r"[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        if not match:
+            return None
+        medium_raw, kind_raw, payload = match.groups()
+        medium_raw = medium_raw.strip().lower()
+        payload = (payload or "").strip()
+        if not payload:
+            return None
+
+        medium_map = {
+            "tv": "TV",
+            "film": "Film",
+            "specials": "Specials",
+            "international": "International",
+            "sports": "Sports",
+            "podcasts": "Podcasts",
+        }
+        kind_raw = kind_raw.strip().lower()
+        if kind_raw in {"gns", "general news & strategy"}:
+            subheading = "General News & Strategy"
+            is_gns_line = True
+        else:
+            subheading = kind_raw.title()
+            is_gns_line = False
+
+        category_path = (
+            f"Content, Deals & Distribution -> {medium_map[medium_raw]} -> {subheading}"
+        )
+        return category_path, payload, is_gns_line
+
+    def _parse_non_content_routed_line(text: str) -> tuple[str, str, bool] | None:
+        """
+        Parse routing override lines for non-Content sections.
+
+        Supported formats (case-insensitive):
+        - "M&A: <sentence>" or "M&A GNS: <sentence>"
+        - "IR <Subheading>: <sentence>" or "Investor Relations <Subheading>: <sentence>"
+        - "Strategy <Subheading>: <sentence>" or
+          "Strategy & Miscellaneous News <Subheading>: <sentence>"
+        - "Highlights: <sentence>"
+        """
+        match = re.match(
+            r"(?is)^\s*(m\s*&\s*a|m&a)\s*"
+            r"(?:gns|general\s+news\s*&\s*strategy)?\s*[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        if match:
+            payload = (match.group(2) or "").strip()
+            if payload:
+                return "M&A -> General News & Strategy", payload, False
+
+        match = re.match(
+            r"(?is)^\s*(ir|investor\s+relations)\s+"
+            r"(quarterly\s+earnings|earnings|company\s+materials|news\s+coverage|"
+            r"ir\s+conferences|analyst\s+perspective|gns|general\s+news\s*&\s*strategy)\s*"
+            r"[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        if match:
+            _, kind, payload = match.groups()
+            payload = (payload or "").strip()
+            if not payload:
+                return None
+            kind = kind.strip().lower()
+            if kind in {"quarterly earnings", "earnings"}:
+                sub = "Quarterly Earnings"
+            elif kind == "company materials":
+                sub = "Company Materials"
+            elif kind == "news coverage":
+                sub = "News Coverage"
+            elif kind == "ir conferences":
+                sub = "IR Conferences"
+            elif kind == "analyst perspective":
+                sub = "Analyst Perspective"
+            else:
+                sub = "General News & Strategy"
+            return (
+                f"Investor Relations -> General News & Strategy -> {sub}",
+                payload,
+                False,
+            )
+
+        match = re.match(
+            r"(?is)^\s*(strategy|strategy\s*&\s*miscellaneous\s+news)\s+"
+            r"(strategy|misc\.\s*news|misc\s+news|gns|general\s+news\s*&\s*strategy)\s*"
+            r"[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        if match:
+            _, kind, payload = match.groups()
+            payload = (payload or "").strip()
+            if not payload:
+                return None
+            kind = kind.strip().lower()
+            if kind.startswith("misc"):
+                sub = "Misc. News"
+            elif kind == "strategy":
+                sub = "Strategy"
+            else:
+                sub = "General News & Strategy"
+            return (
+                f"Strategy & Miscellaneous News -> General News & Strategy -> {sub}",
+                payload,
+                False,
+            )
+
+        match = re.match(
+            r"(?is)^\s*(strategy|strategy\s*&\s*miscellaneous\s+news)\s*[:\-]\s*(.+?)\s*$",
+            text,
+        )
+        if match:
+            payload = (match.group(2) or "").strip()
+            if payload:
+                return (
+                    "Strategy & Miscellaneous News -> General News & Strategy -> Strategy",
+                    payload,
+                    False,
+                )
+
+        match = re.match(r"(?is)^\s*highlights\s*[:\-]\s*(.+?)\s*$", text)
+        if match:
+            payload = (match.group(1) or "").strip()
+            if payload:
+                return "Highlights -> General News & Strategy", payload, False
+
+        return None
+
+    def _is_exec_change_line(text: str) -> bool:
+        lowered = text.lower()
+        return any(
+            lowered.startswith(prefix)
+            for prefix in ("exit:", "promotion:", "hiring:", "new role:")
+        )
+
+    gns_lines_by_category_path: dict[str, list[str]] = {}
+    gns_category_order: list[str] = []
+    routed_facts: list[FactResult] = []
+    remaining: list[str] = []
+    exec_facts: list[FactResult] = []
+    note_target: FactResult | None = None
+    gns_note_target_path: str | None = None
+    for line in cleaned:
+        note_payload = _parse_note_line(line)
+        if note_payload is not None:
+            if note_target is not None:
+                if note_payload:
+                    note_target.summary_bullets.append(note_payload)
+                continue
+            if gns_note_target_path is not None:
+                if (
+                    note_payload
+                    and gns_note_target_path in gns_lines_by_category_path
+                ):
+                    gns_lines_by_category_path[gns_note_target_path].append(note_payload)
+                continue
+            if note_payload:
+                remaining.append(note_payload)
+            continue
+
+        routed = _parse_explicit_category_path_line(line)
+        if routed is None:
+            routed = _parse_content_routed_line(line)
+        if routed is None:
+            routed = _parse_non_content_routed_line(line)
+
+        # Allow unprefixed follow-up notes for routed facts, as long as the line
+        # does not contain ":" (to avoid swallowing list-style title lines) and
+        # does not look like a new routed fact.
+        if (
+            note_target is not None
+            and (
+                note_target.category_path != "Org -> Exec Changes"
+                or allow_unprefixed_exec_notes
+            )
+            and ":" not in line
+            and routed is None
+            and not _is_exec_change_line(line)
+        ):
+            note_target.summary_bullets.append(line)
+            continue
+        if (
+            gns_note_target_path is not None
+            and ":" not in line
+            and routed is None
+            and not _is_exec_change_line(line)
+            and gns_note_target_path in gns_lines_by_category_path
+        ):
+            gns_lines_by_category_path[gns_note_target_path].append(line)
+            continue
+
+        note_target = None
+        gns_note_target_path = None
+
+        if routed is not None:
+            category_path, content, is_gns_line = routed
+            if is_gns_line:
+                if category_path not in gns_lines_by_category_path:
+                    gns_lines_by_category_path[category_path] = []
+                    gns_category_order.append(category_path)
+                gns_lines_by_category_path[category_path].append(content)
+                gns_note_target_path = category_path
+            else:
+                section, parsed_subheading = _parse_category_path(category_path)
+                routed_facts.append(
+                    FactResult(
+                        fact_id=f"fact-{len(routed_facts) + 1}",
+                        category_path=category_path,
+                        section=section,
+                        subheading=parsed_subheading,
+                        company=classification.company,
+                        quarter=classification.quarter,
+                        published_at=published_at,
+                        content_line=content,
+                        summary_bullets=[content],
+                    )
+                )
+                note_target = routed_facts[-1]
+            continue
+        if _is_exec_change_line(line):
+            exec_category_path = "Org -> Exec Changes"
+            exec_section, exec_subheading = _parse_category_path(exec_category_path)
+            exec_facts.append(
+                FactResult(
+                    fact_id=f"fact-{len(exec_facts) + 1}",
+                    category_path=exec_category_path,
+                    section=exec_section,
+                    subheading=exec_subheading,
+                    company=classification.company,
+                    quarter=classification.quarter,
+                    published_at=published_at,
+                    content_line=line,
+                    summary_bullets=[line],
+                )
+            )
+            note_target = exec_facts[-1]
+            continue
+        remaining.append(line)
+
+    base_facts: list[FactResult]
+
+    if _is_interview_or_commentary(remaining):
+        header = remaining[0]
+        base_facts = [
+            FactResult(
+                fact_id="fact-1",
+                category_path=classification.category,
+                section=classification.section,
+                subheading=classification.subheading,
+                company=classification.company,
+                quarter=classification.quarter,
+                published_at=published_at,
+                content_line=header,
+                summary_bullets=remaining,
+            )
+        ]
+    elif _is_content_list_category(classification):
+        facts: List[FactResult] = []
+        current: FactResult | None = None
+        next_id = 1
+        for text in remaining:
+            note_payload = _parse_note_line(text)
+            if note_payload is not None and current is not None:
+                if note_payload:
+                    if len(current.summary_bullets) < 2:
+                        current.summary_bullets.append(note_payload)
+                    else:
+                        current.summary_bullets[-1] = (
+                            current.summary_bullets[-1].rstrip() + " " + note_payload
+                        ).strip()
+                continue
+            if current is None or _looks_like_title_item_line(text):
+                fact = FactResult(
+                    fact_id=f"fact-{next_id}",
+                    category_path=classification.category,
+                    section=classification.section,
+                    subheading=classification.subheading,
+                    company=classification.company,
+                    quarter=classification.quarter,
+                    published_at=published_at,
+                    content_line=text,
+                    summary_bullets=[text],
+                )
+                facts.append(fact)
+                current = fact
+                next_id += 1
+                continue
+
+            # Attach one optional note line to the previous title item. If the model
+            # emits more than one, coalesce extras into the note line.
+            if len(current.summary_bullets) < 2:
+                current.summary_bullets.append(text)
+            else:
+                current.summary_bullets[-1] = (
+                    current.summary_bullets[-1].rstrip() + " " + text
+                ).strip()
+        base_facts = list(facts)
+    else:
+        facts: list[FactResult] = []
+        current: FactResult | None = None
+        next_id = 1
+        for raw in remaining:
+            note_payload = _parse_note_line(raw)
+            if note_payload is not None:
+                if current is not None and note_payload:
+                    current.summary_bullets.append(note_payload)
+                    continue
+                raw = note_payload or ""
+            if not raw.strip():
+                continue
+            label, content = _label_from_bullet(raw)
+            category_path, section, subheading = _build_fact_category(
+                classification.category, label
+            )
+            current = FactResult(
+                fact_id=f"fact-{next_id}",
+                category_path=category_path,
+                section=section,
+                subheading=subheading,
+                company=classification.company,
+                quarter=classification.quarter,
+                published_at=published_at,
+                content_line=content,
+                summary_bullets=[content],
+            )
+            facts.append(current)
+            next_id += 1
+        base_facts = facts
+
+    facts = exec_facts + base_facts + routed_facts
+
+    for category_path in gns_category_order:
+        lines = gns_lines_by_category_path.get(category_path) or []
+        if not lines:
+            continue
+        section, subheading = _parse_category_path(category_path)
+        facts.append(
+            FactResult(
+                fact_id=f"fact-{len(facts) + 1}",
+                category_path=category_path,
+                section=section,
+                subheading=subheading,
+                company=classification.company,
+                quarter=classification.quarter,
+                published_at=published_at,
+                content_line=lines[0],
+                summary_bullets=lines,
+            )
+        )
     return facts
 
 
@@ -1085,7 +1520,12 @@ def _route_prompt_and_formatter(
     for rule in ROUTING_RULES:
         if any(token in category_lower for token in rule.match_any):
             formatter_fn = FORMATTERS.get(rule.formatter, FORMATTERS[DEFAULT_FORMATTER])
-            return rule.prompt, formatter_fn
+            prompt_name = rule.prompt
+            if prompt_name == "exec_changes.txt":
+                mode = os.getenv("EXEC_CHANGE_NOTE_MODE", "prefixed").strip().lower()
+                if mode in {"unprefixed", "unprefixed_followon"}:
+                    prompt_name = "exec_changes_unprefixed_note.txt"
+            return prompt_name, formatter_fn
 
     return DEFAULT_PROMPT, FORMATTERS[DEFAULT_FORMATTER]
 

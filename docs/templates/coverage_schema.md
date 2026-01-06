@@ -33,7 +33,7 @@ This schema defines the payload the Chrome extension (and any other intake) must
 - `fact_id` (required): Stable identifier within the article (e.g., `fact-1`).
 - `category_path` (required): Full classifier-style path with arrows (e.g., `Content, Deals, Distribution -> TV -> Renewals`).
 - `section` (required): One of `Highlights | Org | Content / Deals / Distribution | Strategy & Miscellaneous News | Investor Relations | M&A` derived from `category_path`.
-- `subheading`: One of `General News & Strategy | Exec Changes | Development | Greenlights | Pickups | Dating | Renewals | Cancellations | Film | TV | International | Sports | Podcasts | Strategy | Quarterly Earnings | Company Materials | News Coverage | None`.
+- `subheading`: One of `General News & Strategy | Exec Changes | Development | Greenlights | Pickups | Dating | Renewals | Cancellations | Film | TV | Specials | International | Sports | Podcasts | Strategy | Quarterly Earnings | Company Materials | News Coverage | None`.
 - `company`: Company for this fact; defaults to the article-level company if not provided.
 - `quarter`: Quarter for this fact; defaults to the article-level quarter if not provided.
 - `published_at`: Article publish date (carried through for convenience; no per-fact dating logic).
@@ -53,7 +53,7 @@ Default: derive from `published_at` in the article's local timezone when availab
 
 - Highlights: Only the 3-7 most significant items per quarter; set `is_highlight_candidate=true`.
 - Org: `Exec Changes` subheading; promotions, hires, exits.
-- Content / Deals / Distribution: Use `General News & Strategy`, `Development`, `Greenlights`, `Pickups`, `Dating`, `Renewals`, `Cancellations`, optionally `Film`, `TV`, `International`, `Sports`, `Podcasts` when the article is clearly medium-specific.
+- Content / Deals / Distribution: Use `General News & Strategy`, `Development`, `Greenlights`, `Pickups`, `Dating`, `Renewals`, `Cancellations`, optionally `Film`, `TV`, `Specials`, `International`, `Sports`, `Podcasts` when the article is clearly medium-specific.
 - Strategy & Miscellaneous News: Broader corporate strategy, product shifts, partnerships that are not content-specific.
 - Investor Relations: `Quarterly Earnings`, `Company Materials` (reports, calls), `News Coverage` (press recaps of earnings).
 - M&A: Acquisitions, divestitures, significant equity investments; use when the deal is company-level, not just title-level rights.
