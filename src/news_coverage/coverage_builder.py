@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from .agent_runner import run_with_agent
-from .buyer_routing import BuyerMatch, match_buyers
+from .buyer_routing import BuyerMatch, buyer_display_name, match_buyers
 from .docx_builder import BuyerReport, CoverageEntry, build_docx
 from .models import Article
 
@@ -217,7 +217,7 @@ def build_reports(
 
     # Render DOCXs
     for buyer, report in result.buyer_reports.items():
-        output_path = output_dir / f"{quarter_label} {buyer} News Coverage.docx"
+        output_path = output_dir / f"{quarter_label} {buyer_display_name(buyer)} News Coverage.docx"
         build_docx(report, output_path, quarter_label)
 
     # Write consolidated needs-review file
@@ -225,7 +225,9 @@ def build_reports(
     if result.reviews:
         lines = []
         for item in result.reviews:
-            lines.append(f"{item.buyer}: {item.title} ({item.url}) -- {item.reason}")
+            lines.append(
+                f"{buyer_display_name(item.buyer)}: {item.title} ({item.url}) -- {item.reason}"
+            )
         needs_review_path.write_text("\n".join(lines), encoding="utf-8")
     else:
         needs_review_path.write_text("No review items.\n", encoding="utf-8")

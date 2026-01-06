@@ -507,6 +507,46 @@ def test_format_markdown_outputs_title_category_and_date_link():
     assert "Content: Key takeaway sentence. ([12/5](https://example.com/story))" in markdown
 
 
+def test_format_markdown_exec_change_inlines_note_after_date_without_dup_date():
+    article = Article(
+        title="Netflix Chief Product Officer To Exit",
+        source="Deadline",
+        url="https://deadline.com/example",
+        content="Netflix exec change.",
+        published_at=datetime(2025, 9, 10, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Org -> Exec Changes",
+        section="Org",
+        subheading="Exec Changes",
+        confidence=0.9,
+        company="Netflix",
+        quarter="2025 Q3",
+    )
+    fact = FactResult(
+        fact_id="fact-1",
+        category_path="Org -> Exec Changes",
+        section="Org",
+        subheading="Exec Changes",
+        company="Netflix",
+        quarter="2025 Q3",
+        published_at=date(2025, 9, 10),
+        content_line="Exit: Eunice Kim, Chief Product Officer at Netflix",
+        summary_bullets=[
+            "Exit: Eunice Kim, Chief Product Officer at Netflix",
+            "She will be succeeded by Jane Doe, who will assume oversight.",
+        ],
+    )
+    summary = SummaryResult(bullets=[], facts=[fact])
+
+    markdown = format_markdown(article, classification, summary)
+
+    assert "Category: Org -> Exec Changes" in markdown
+    assert "Exit: Eunice Kim, Chief Product Officer at Netflix ([9/10]" in markdown
+    assert "assume oversight." in markdown
+    assert "assume oversight. ([9/10]" not in markdown
+
+
 def test_format_markdown_keeps_multiple_summary_lines_without_dup_date():
     article = Article(
         title="HGTV Orders Shows",
@@ -592,6 +632,150 @@ def test_format_markdown_preserves_multi_bullet_fact():
     assert "Category: Content, Deals, Distribution -> TV -> Greenlights" in markdown
     assert "Content: Wild Vacation Rentals: HGTV, travel/reality ([12/16]" in markdown
     assert "Content: Zillow Gone Wild S3: HGTV, real estate/reality ([12/16]" in markdown
+
+
+def test_fact_buyer_guardrail_filters_cross_section_noise(monkeypatch):
+    monkeypatch.setenv("FACT_BUYER_GUARDRAIL_MODE", "section")
+    monkeypatch.delenv("BUYERS_OF_INTEREST", raising=False)
+
+    article = Article(
+        title="'Heated Rivalry' Renewed for Season 2 at HBO Max and Crave",
+        source="Variety",
+        url="https://variety.com/2025/tv/news/heated-rivalry-renewed-season-2-hbo-max-crave-123/",
+        content="Body text.",
+        published_at=datetime(2025, 12, 12, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Content, Deals & Distribution -> TV -> Renewals",
+        section="Content / Deals / Distribution",
+        subheading="Renewals",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=[],
+        facts=[
+            FactResult(
+                fact_id="fact-1",
+                category_path="Content, Deals & Distribution -> TV -> Renewals",
+                section="Content / Deals / Distribution",
+                subheading="Renewals",
+                company="WBD",
+                quarter="2025 Q4",
+                published_at=date(2025, 12, 12),
+                content_line="Heated Rivalry S2: HBO Max and Crave, romantic drama",
+                summary_bullets=[
+                    "Heated Rivalry S2: HBO Max and Crave, romantic drama",
+                    (
+                        "HBO Max will continue to license the series for its second season "
+                        "without producing."
+                    ),
+                ],
+            ),
+            FactResult(
+                fact_id="fact-2",
+                category_path="M&A -> General News & Strategy",
+                section="M&A",
+                subheading="General News & Strategy",
+                company="WBD",
+                quarter="2025 Q4",
+                published_at=date(2025, 12, 12),
+                content_line=(
+                    "Bell Media acquired a majority stake in Sphere Abacus earlier this year."
+                ),
+                summary_bullets=[
+                    "Bell Media acquired a majority stake in Sphere Abacus earlier this year."
+                ],
+            ),
+        ],
+    )
+
+    rendered = format_markdown(article, classification, summary)
+
+    assert "HBO Max will continue to license" in rendered
+    assert "Bell Media acquired a majority stake" not in rendered
+
+
+def test_fact_buyer_guardrail_strict_falls_back_with_company_prefix(monkeypatch):
+    monkeypatch.setenv("FACT_BUYER_GUARDRAIL_MODE", "strict")
+    monkeypatch.setenv("BUYERS_OF_INTEREST", "WBD")
+
+    article = Article(
+        title="Generic update",
+        source="Demo",
+        url="https://example.com/generic",
+        content="Body text.",
+        published_at=datetime(2025, 12, 12, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Strategy & Miscellaneous News -> General News & Strategy",
+        section="Strategy & Miscellaneous News",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="WBD",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=["The company is considering strategic options."],
+        facts=[
+            FactResult(
+                fact_id="fact-1",
+                category_path="Strategy & Miscellaneous News -> General News & Strategy",
+                section="Strategy & Miscellaneous News",
+                subheading="General News & Strategy",
+                company="WBD",
+                quarter="2025 Q4",
+                published_at=date(2025, 12, 12),
+                content_line="The company is considering strategic options.",
+                summary_bullets=["The company is considering strategic options."],
+            )
+        ],
+    )
+
+    rendered = format_markdown(article, classification, summary)
+
+    assert "WBD: The company is considering strategic options." in rendered
+
+
+def test_fact_buyer_guardrail_strict_raises_when_out_of_scope(monkeypatch):
+    monkeypatch.setenv("FACT_BUYER_GUARDRAIL_MODE", "strict")
+    monkeypatch.setenv("BUYERS_OF_INTEREST", "WBD")
+
+    article = Article(
+        title="Netflix update",
+        source="Demo",
+        url="https://example.com/netflix",
+        content="Body text.",
+        published_at=datetime(2025, 12, 12, tzinfo=timezone.utc),
+    )
+    classification = ClassificationResult(
+        category="Strategy & Miscellaneous News -> General News & Strategy",
+        section="Strategy & Miscellaneous News",
+        subheading="General News & Strategy",
+        confidence=0.9,
+        company="Netflix",
+        quarter="2025 Q4",
+    )
+    summary = SummaryResult(
+        bullets=["Netflix is planning a new initiative."],
+        facts=[
+            FactResult(
+                fact_id="fact-1",
+                category_path="Strategy & Miscellaneous News -> General News & Strategy",
+                section="Strategy & Miscellaneous News",
+                subheading="General News & Strategy",
+                company="Netflix",
+                quarter="2025 Q4",
+                published_at=date(2025, 12, 12),
+                content_line="Netflix is planning a new initiative.",
+                summary_bullets=["Netflix is planning a new initiative."],
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match=r"Strict buyer guardrail removed all facts"):
+        format_markdown(article, classification, summary)
 
 
 def test_append_final_output_entry_spacer_for_multi_line(tmp_path, monkeypatch):

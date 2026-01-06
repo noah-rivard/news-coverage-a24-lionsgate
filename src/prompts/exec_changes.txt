@@ -8,8 +8,7 @@ Output rules (critical):
 
 2) Do NOT include dates like (M/D). The pipeline already knows the article publish date and will append it automatically.
 
-3) After the title/company, add one short clause with reporting-line context or responsibilities only when the article clearly states it.
-   - If the announcement is an exit, do not include reporting structure.
+3) Keep the exec-change line compact: stop after "Name, Full Title at Company". Do not add extra clauses to this line.
 
 4) Optional "AND" coverage (only when applicable):
    - If the article also contains meaningful medium-specific strategy context that should be captured in quarterly coverage, add 1-3 additional lines prefixed with:
@@ -28,9 +27,13 @@ Output rules (critical):
 
      Only emit these non-Content lines when the underlying fact is explicitly and clearly stated in the article text. Do not infer, speculate, or introduce new claims.
 
-   - Optional note line (exec changes only): if a single exec-change line needs one additional, highly specific detail, add exactly one additional line prefixed with:
+   - Optional note line (exec changes only): if a single exec-change line needs one additional, highly specific detail, add exactly one additional line immediately after that exec-change line, prefixed with:
 
      Note: <one complete sentence>
+
+     Use the Note line for reporting-line context, scope/responsibilities, successor/oversight, or whether they will continue to hold another role (only when the article explicitly states it).
+     - If the announcement is an exit, do not include reporting structure; you may include successor/oversight when explicitly stated.
+     - The Note line must be a complete sentence and should not repeat the exec-change line.
 
 5) New Role vs Hiring:
    - New Role: same company, materially changed responsibilities.

@@ -56,6 +56,25 @@ class Settings(BaseSettings):
             "Disabled when unset."
         ),
     )
+    buyers_of_interest: str | None = Field(
+        None,
+        alias="BUYERS_OF_INTEREST",
+        description=(
+            "Optional comma-separated list of buyer names to treat as in-scope when "
+            "filtering extracted facts. When unset, all configured buyers are in-scope."
+        ),
+    )
+    fact_buyer_guardrail_mode: str = Field(
+        "section",
+        alias="FACT_BUYER_GUARDRAIL_MODE",
+        description=(
+            "Controls fact filtering to keep output focused on in-scope buyers. "
+            "Options: off, section, strict. "
+            "section keeps facts in the classifier's primary section and filters other "
+            "sections unless they mention an in-scope buyer. strict keeps only facts "
+            "that mention an in-scope buyer."
+        ),
+    )
 
 
 def get_settings() -> Settings:

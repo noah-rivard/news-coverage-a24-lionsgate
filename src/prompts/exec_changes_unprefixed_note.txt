@@ -8,10 +8,7 @@ Output rules (critical):
 
 2) Do NOT include dates like (M/D). The pipeline already knows the article publish date and will append it automatically.
 
-3) Optional follow-on note line (unprefixed):
-   If (and only if) you need one additional, highly specific detail to make the exec change useful in quarterly coverage (e.g., reporting line, scope, successor), add exactly ONE additional plain sentence on the next line with no prefix.
-   - Do not add more than one follow-on line per exec change.
-   - Keep it factual; no filler.
+3) Keep the exec-change line compact: stop after "Name, Full Title at Company". Do not add extra clauses to this line.
 
 4) Optional "AND" coverage (only when applicable):
    - Medium-specific content items: you may add routing-override lines like:
@@ -19,9 +16,16 @@ Output rules (critical):
      Film/TV/Specials Development/Greenlights/Pickups/Dating/Renewals/Cancellations: <title item line>
    - Non-Content items: you may add `M&A:` / `Strategy:` / `IR Quarterly Earnings:` lines when those belong separately.
    - Only emit any "AND" lines when the underlying fact is explicitly and clearly stated in the article text. Do not infer, speculate, or introduce new claims.
+   - Any non-exec-change content MUST use these explicit prefixes; do not use unprefixed lines for non-exec facts.
 
-5) New Role vs Hiring:
+5) Optional follow-on note line (unprefixed; exec changes only):
+   If (and only if) you need one additional, highly specific detail to make the exec change useful in quarterly coverage (e.g., reporting line, scope/responsibilities, successor/oversight, or whether they will continue to hold another role), add exactly ONE additional plain sentence immediately after that exec-change line with no prefix.
+   - If the announcement is an exit, do not include reporting structure; you may include successor/oversight when explicitly stated.
+   - Do not add more than one follow-on line per exec change.
+   - Keep it factual; no filler. Do not repeat the exec-change line.
+
+6) New Role vs Hiring:
    - New Role: same company, materially changed responsibilities.
    - Hiring: joined from another company.
 
-6) Keep lines factual and specific; ignore ads and unrelated text.
+7) Keep lines factual and specific; ignore ads and unrelated text.

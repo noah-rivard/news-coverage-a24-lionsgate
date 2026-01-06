@@ -39,6 +39,8 @@ class PipelineContext:
 
     article: Article
     client: OpenAI
+    classification_override: ClassificationResult | None = None
+    allow_duplicate_ingest: bool = False
     classification: ClassificationResult | None = None
     summary: SummaryResult | None = None
     markdown: str | None = None
@@ -198,6 +200,13 @@ def _make_tools(context: PipelineContext):
     @function_tool(name_override="classify_article")
     def classify() -> dict:
         """Classify the article in context and store the result."""
+        if context.classification_override is not None:
+            context.classification = context.classification_override
+            payload = dataclasses.asdict(context.classification)
+            payload["override_applied"] = True
+            context.trace_events.append({"tool": "classify_article", "output": payload})
+            return payload
+
         context.classification = classify_article(context.article, context.client)
         payload = dataclasses.asdict(context.classification)
         context.trace_events.append({"tool": "classify_article", "output": payload})
@@ -238,6 +247,7 @@ def _make_tools(context: PipelineContext):
             context.article,
             context.classification,
             context.summary,
+            dedupe=not context.allow_duplicate_ingest,
         )
         payload = {
             "stored_path": str(context.ingest.stored_path),
@@ -253,6 +263,9 @@ def run_with_agent(
     article: Article,
     client: Optional[OpenAI] = None,
     runner: Optional[Runner] = None,
+    *,
+    classification_override: ClassificationResult | None = None,
+    allow_duplicate_ingest: bool = False,
 ) -> PipelineResult:
     """
     Run a single article through the manager agent (Agents SDK).
@@ -263,7 +276,12 @@ def run_with_agent(
     settings = get_settings()
     sync_client, async_client = _build_clients(client)
     normalized_article, normalization_note = normalize_article(article)
-    context = PipelineContext(article=normalized_article, client=sync_client)
+    context = PipelineContext(
+        article=normalized_article,
+        client=sync_client,
+        classification_override=classification_override,
+        allow_duplicate_ingest=allow_duplicate_ingest,
+    )
 
     tools = _make_tools(context)
     instructions = (

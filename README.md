@@ -20,6 +20,14 @@ python -m news_coverage.cli path/to/article.json
 
 Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout. Use `--trace` to append an agent trace log for that run under `docs/traces/` (includes raw article content).
 
+To manually override categorization/routing (for review workflows), pass an override category path. This forces prompt routing based on your chosen category:
+
+```
+python -m news_coverage.cli path/to/article.json --override-category "M&A -> General News & Strategy"
+```
+
+If you want to re-run and store a new ingest record even when the URL was already processed for that company/quarter, add `--allow-duplicate-ingest`.
+
 The CLI defaults to the manager agent path (OpenAI Agents SDK). Keep the legacy direct pipeline with `--mode direct`. Examples:
 
 ```
@@ -48,6 +56,14 @@ python -m news_coverage.cli build-docx data/my_articles --quarter "2025 Q4"
 ```
 
 Provide one or more JSON article files (or a directory of them). Articles missing `published_at` or with only weak keyword matches are logged to `needs_review.txt`. Highlights are left for manual editing in the DOCX.
+
+### Compare A/B outputs (at a glance)
+
+If you have two sets of per-article Markdown outputs (e.g., `out-prefixed/*.out.md` vs `out-unprefixed/*.out.md`), generate a side-by-side report:
+
+```
+python tools/compare_ab_outputs.py --a PATH_TO_A --b PATH_TO_B --output ab_compare_report.md
+```
 
 ### Run the ingest server for the Chrome extension
 
@@ -84,6 +100,13 @@ curl -X POST http://localhost:8000/process/article ^
 
 Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
 
+Reviewer UI (click-select category overrides without editing JSON):
+
+- Start the server (same as above), then open `http://localhost:8000/review`.
+- Load a sample fixture from the dropdown, or provide a local JSON file path (or paste JSON).
+- Click a category chip (or type a full category path), then click “Run (override)”.
+- By default, the reviewer only loads JSON files from within the repo. To allow additional folders, set `REVIEWER_ALLOWED_ROOTS` to a comma-separated list of absolute paths.
+
 Process multiple articles in one request (each article still runs independently):
 
 ```
@@ -102,6 +125,8 @@ Environment knobs:
 - `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
 - `CORS_ALLOW_CREDENTIALS` (default true, but forced false when origins are `*` to avoid the wildcard+credentials startup error).
 - `AGENT_TRACE_PATH` to append a plain-text trace log for manager-agent runs (tool calls + outputs + final markdown + raw article content).
+- `FACT_BUYER_GUARDRAIL_MODE` to filter out cross-section facts that don't mention any in-scope buyers (`section` default; `strict` or `off`).
+- `BUYERS_OF_INTEREST` (comma-separated) to define which buyer names are considered in-scope for the fact guardrail (default: all configured buyers). Legacy doc names like `Comcast` and `Warner Bros Discovery` are accepted and map to `Comcast/NBCU` and `WBD`.
 - `OPENAI_AGENTS_DISABLE_TRACING=true` to silence non-fatal Agents SDK tracing export retries (e.g., 503 warnings).
 
 ### Chrome extension scaffold (MV3)
@@ -162,6 +187,8 @@ Markdown output is delivery-ready and follows three lines for single-title artic
 - Content: <leading summary sentence> ([M/D](article_url)) -- the date (month/day) is the hyperlink to the article.
 
 If the summarizer emits multiple bullets, the markdown keeps every line (only adding the date hyperlink when a line lacks a date parenthetical) so multi-title stories are not collapsed.
+
+For `Org -> Exec Changes`, if the model emits an attached note line, the formatter renders it inline after the publish date so the date appears only once (mirrors the manual buyer template style).
 
 Multi-title content-deal/slate articles (e.g., international greenlights) are formatted one line per title using the content-deals prompt: [Country] Title: Platform, genre (M/D) with M/D taken from the article publish date. If the model adds parentheses for subtitles/alternate titles but no date, the formatter still appends the publish date.
 

@@ -98,6 +98,83 @@ BUYER_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     ),
 }
 
+BUYER_DISPLAY_NAMES: Dict[str, str] = {
+    # Align with the historical quarterly “News Coverage” doc naming.
+    "Comcast/NBCU": "Comcast",
+    "WBD": "Warner Bros Discovery",
+}
+
+
+def buyer_display_name(buyer: str) -> str:
+    """Return the human-facing buyer label used in DOCX filenames."""
+    return BUYER_DISPLAY_NAMES.get(buyer, buyer)
+
+
+def _normalize_buyer_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
+_CANONICAL_BUYER_BY_NORMALIZED: Dict[str, str] = {
+    _normalize_buyer_name(buyer): buyer for buyer in BUYER_KEYWORDS.keys()
+}
+
+_BUYER_ALIASES: Dict[str, str] = {
+    # Comcast/NBCU aliases (common in legacy doc names).
+    _normalize_buyer_name("Comcast"): "Comcast/NBCU",
+    _normalize_buyer_name("NBCU"): "Comcast/NBCU",
+    _normalize_buyer_name("NBCUniversal"): "Comcast/NBCU",
+    _normalize_buyer_name("NBC Universal"): "Comcast/NBCU",
+    _normalize_buyer_name("NBCU/Comcast"): "Comcast/NBCU",
+    # WBD aliases (common in legacy doc names).
+    _normalize_buyer_name("Warner Bros Discovery"): "WBD",
+    _normalize_buyer_name("Warner Bros. Discovery"): "WBD",
+    _normalize_buyer_name("Warner Brothers Discovery"): "WBD",
+    _normalize_buyer_name("WarnerMedia"): "WBD",
+}
+
+
+def canonicalize_buyer_name(name: str) -> str | None:
+    """
+    Map a user-facing buyer name to our canonical buyer key (or None if unknown).
+    """
+    normalized = _normalize_buyer_name(name)
+    if not normalized:
+        return None
+    if normalized in _CANONICAL_BUYER_BY_NORMALIZED:
+        return _CANONICAL_BUYER_BY_NORMALIZED[normalized]
+    return _BUYER_ALIASES.get(normalized)
+
+
+def parse_buyers_of_interest(raw: str | None) -> set[str]:
+    """
+    Parse BUYERS_OF_INTEREST into a validated set of canonical buyers.
+
+    When unset/blank, returns all buyers in BUYER_KEYWORDS.
+    """
+    known = set(BUYER_KEYWORDS.keys())
+    if not raw or not raw.strip():
+        return known
+
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    selected: set[str] = set()
+    unknown: list[str] = []
+    for part in parts:
+        canonical = canonicalize_buyer_name(part)
+        if canonical is None:
+            unknown.append(part)
+        else:
+            selected.add(canonical)
+
+    if unknown:
+        raise ValueError(
+            "BUYERS_OF_INTEREST contains unknown buyer(s): {unknown}. "
+            "Known buyers: {known}. Aliases include: Comcast (-> Comcast/NBCU), "
+            "Warner Bros Discovery (-> WBD).".format(
+                unknown=sorted(unknown), known=sorted(known)
+            )
+        )
+    return selected
+
 
 @dataclass(frozen=True)
 class BuyerMatch:

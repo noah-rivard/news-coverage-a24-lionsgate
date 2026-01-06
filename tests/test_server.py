@@ -162,7 +162,8 @@ def _process_payloads():
 def test_process_article_runs_pipeline(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article):
+    def fake_pipeline(article, *, allow_duplicate_ingest=False):
+        assert allow_duplicate_ingest is False
         return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl")
 
     monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
@@ -179,7 +180,8 @@ def test_process_article_runs_pipeline(monkeypatch, tmp_path):
 def test_process_article_parses_rfc3339_z_published_at(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article):
+    def fake_pipeline(article, *, allow_duplicate_ingest=False):
+        assert allow_duplicate_ingest is False
         assert article.published_at is not None
         assert article.published_at.year == 2025
         assert article.published_at.month == 12
@@ -198,7 +200,7 @@ def test_process_article_parses_rfc3339_z_published_at(monkeypatch, tmp_path):
 def test_process_article_rejects_invalid_published_at(monkeypatch, tmp_path):
     client = make_client(tmp_path)
 
-    def fake_pipeline(article):
+    def fake_pipeline(article, *, allow_duplicate_ingest=False):
         raise AssertionError("pipeline should not be called when payload is invalid")
 
     monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
@@ -208,6 +210,60 @@ def test_process_article_rejects_invalid_published_at(monkeypatch, tmp_path):
     resp = client.post("/process/article", json=payload)
     assert resp.status_code == 400
     assert "published_at" in resp.json()["detail"]
+
+
+def test_process_article_allows_override_category(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+
+    called = {"count": 0, "override": None}
+
+    def fake_pipeline(
+        article,
+        *,
+        override_category,
+        override_company=None,
+        override_quarter=None,
+        allow_duplicate_ingest=False,
+    ):
+        called["count"] += 1
+        called["override"] = {
+            "override_category": override_category,
+            "override_company": override_company,
+            "override_quarter": override_quarter,
+            "allow_duplicate_ingest": allow_duplicate_ingest,
+        }
+        return _StubResult(tmp_path / "WBD" / "2025 Q1.jsonl")
+
+    monkeypatch.setattr("news_coverage.server._run_article_pipeline_override", fake_pipeline)
+
+    payload = _process_payload()
+    payload["override_category"] = (
+        "Strategy & Miscellaneous News -> General News & Strategy -> Strategy"
+    )
+    payload["allow_duplicate_ingest"] = True
+    resp = client.post("/process/article", json=payload)
+    assert resp.status_code == 201
+    assert called["count"] == 1
+    assert called["override"]["override_category"].startswith("Strategy")
+    assert called["override"]["allow_duplicate_ingest"] is True
+
+
+def test_process_article_forwards_allow_duplicate_ingest_without_override(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+
+    called = {"allow_duplicate_ingest": None}
+
+    def fake_pipeline(article, *, allow_duplicate_ingest=False):
+        called["allow_duplicate_ingest"] = allow_duplicate_ingest
+        return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl")
+
+    monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
+
+    payload = _process_payload()
+    payload["allow_duplicate_ingest"] = True
+    resp = client.post("/process/article", json=payload)
+    assert resp.status_code == 201
+    assert called["allow_duplicate_ingest"] is True
 
 
 def test_process_articles_runs_pipeline(monkeypatch, tmp_path):
@@ -262,3 +318,91 @@ def test_process_articles_reports_invalid_payloads(monkeypatch, tmp_path):
     assert data["counts"]["invalid"] == 1
     assert data["results"][0]["status"] == "invalid"
     assert data["results"][1]["status"] == "processed"
+
+
+def test_review_page_renders(tmp_path):
+    client = make_client(tmp_path)
+    resp = client.get("/review")
+    assert resp.status_code == 200
+    assert "Coverage Review Desk" in resp.text
+
+
+def test_review_run_calls_override_pipeline(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+
+    called = {"override": None}
+
+    def fake_pipeline(
+        article,
+        *,
+        override_category,
+        override_company=None,
+        override_quarter=None,
+        allow_duplicate_ingest=False,
+    ):
+        called["override"] = {
+            "override_category": override_category,
+            "override_company": override_company,
+            "override_quarter": override_quarter,
+            "allow_duplicate_ingest": allow_duplicate_ingest,
+        }
+        return _StubResult(tmp_path / "WBD" / "2025 Q1.jsonl")
+
+    monkeypatch.setattr("news_coverage.server._run_article_pipeline_override", fake_pipeline)
+
+    resp = client.post(
+        "/review/api/run",
+        json={
+            "payload": _process_payload(),
+            "override_category": "Org -> Exec Changes",
+            "allow_duplicate_ingest": True,
+        },
+    )
+    assert resp.status_code == 201
+    assert called["override"] is not None
+    assert called["override"]["override_category"] == "Org -> Exec Changes"
+    assert called["override"]["allow_duplicate_ingest"] is True
+
+
+def test_review_run_forwards_allow_duplicate_ingest_without_override(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+
+    called = {"allow_duplicate_ingest": None}
+
+    def fake_pipeline(article, *, allow_duplicate_ingest=False):
+        called["allow_duplicate_ingest"] = allow_duplicate_ingest
+        return _StubResult(tmp_path / "A24" / "2025 Q1.jsonl")
+
+    monkeypatch.setattr("news_coverage.server._run_article_pipeline", fake_pipeline)
+
+    resp = client.post(
+        "/review/api/run",
+        json={
+            "payload": _process_payload(),
+            "allow_duplicate_ingest": True,
+        },
+    )
+    assert resp.status_code == 201
+    assert called["allow_duplicate_ingest"] is True
+
+
+def test_review_load_rejects_paths_outside_allowlist(tmp_path):
+    client = make_client(tmp_path)
+    p = tmp_path / "article.json"
+    p.write_text(json.dumps(_process_payload()), encoding="utf-8")
+
+    resp = client.post("/review/api/load", json={"path": str(p)})
+    assert resp.status_code == 400
+    assert "path must be within one of" in resp.json()["detail"]
+
+
+def test_review_load_allows_configured_root(monkeypatch, tmp_path):
+    client = make_client(tmp_path)
+    p = tmp_path / "article.json"
+    p.write_text(json.dumps(_process_payload()), encoding="utf-8")
+    monkeypatch.setenv("REVIEWER_ALLOWED_ROOTS", str(tmp_path))
+
+    resp = client.post("/review/api/load", json={"path": str(p)})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["payload"]["title"] == "Example"

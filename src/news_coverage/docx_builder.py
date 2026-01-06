@@ -203,8 +203,23 @@ def build_docx(report: BuyerReport, output_path: Path, quarter_label: str) -> No
                         _safe_add_heading(subheading, level=2)
                     for entry in entries:
                         bullet = _safe_add_paragraph(style="List Paragraph")
-                        bullet.add_run(f"{entry.title} ({_format_md(entry.published_at)})")
-                        for line in entry.summary_lines:
+                        date_text = _format_md(entry.published_at)
+                        inline_note = ""
+                        remaining_lines = list(entry.summary_lines)
+                        if (
+                            section_key == "Org"
+                            and (subheading or "").strip() == "Exec Changes"
+                            and remaining_lines
+                        ):
+                            inline_note = remaining_lines[0].strip()
+                            remaining_lines = remaining_lines[1:]
+
+                        if inline_note:
+                            bullet.add_run(f"{entry.title} ({date_text}) {inline_note}")
+                        else:
+                            bullet.add_run(f"{entry.title} ({date_text})")
+
+                        for line in remaining_lines:
                             if not (line or "").strip():
                                 continue
                             _safe_add_paragraph(

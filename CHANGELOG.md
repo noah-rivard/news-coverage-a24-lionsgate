@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file. This projec
 ### Added
 - Chrome intake extension now exposes a right-click context menu for pages and embedded frames so users can trigger a scrape on the clicked frame; manifest includes the `contextMenus` permission to support it.
 - FastAPI `/process/articles` endpoint to process multiple articles in one request with per-item status and optional concurrency controls.
+- Helper script to generate a side-by-side A/B comparison report from per-article `*.out.md` outputs (`tools/compare_ab_outputs.py`).
+- Manual category override for rerouting: CLI `--override-category` and `/process/article` supports `override_category` to re-run prompt routing/summarization under a chosen category.
+- Local reviewer page at `/review` to click-select a category override and rerun the pipeline without editing JSON.
+- Buyer-focused fact guardrail that filters out cross-section facts which don't mention any in-scope buyers; configure with `FACT_BUYER_GUARDRAIL_MODE` and `BUYERS_OF_INTEREST`.
+- Buyer-name aliases to match legacy “News Coverage” doc naming: `BUYERS_OF_INTEREST` accepts `Comcast` and `Warner Bros Discovery` (mapped to `Comcast/NBCU` and `WBD`).
 - Component guide for the planning area (`.agent/AGENTS.md`) plus a `complete/` folder for finished ExecPlans.
 - Manager agent path implemented with the OpenAI Agents SDK (`agent_runner.py`) plus CLI mode flag (`--mode agent|direct`) defaulting to the agent path.
 - Batch CLI command to process multiple articles in parallel (`news_coverage.cli batch`) with per-article outputs and configurable concurrency.
@@ -71,12 +76,15 @@ All notable changes to this project will be documented in this file. This projec
 - Reformatted `docs/sample_outputs.md` to match the Title/Category/Content layout used in deliveries, hyperlinking publication dates (now M/D format) instead of sources, and added a README pointer to the sample output doc.
 
 ### Fixed
+- `/process/article` (and `/review/api/run`) now forwards `allow_duplicate_ingest` to the pipeline even when no `override_category` is provided.
 - Summarizer/classifier now raise on incomplete Responses API outputs instead of stringifying the full response into coverage bullets when `max_output_tokens` is hit.
 - Summarizer now retries with a truncated article body when `max_output_tokens` is hit, reducing failures on long articles before raising.
 - Coordinator ingest now synthesizes a fallback fact (from takeaway/bullets/headline) when the summarizer returns no facts, preventing schema validation crashes that previously aborted `/process/article` ingestion.
 - Final-output log now uses the same fallback fact when a summary is empty, so headline-only articles still include a Category/Content block instead of being silently dropped.
+- Strict buyer guardrail (`FACT_BUYER_GUARDRAIL_MODE=strict`) no longer emits an out-of-scope fallback fact when all facts are filtered; it now errors instead, preventing non-target buyers from leaking into final output/ingest when `BUYERS_OF_INTEREST` is limited.
 - `/process/article` now correctly parses RFC3339 timestamps with `Z` (and `+0000`-style offsets) for `published_at`, and rejects invalid timestamps with a 400 instead of silently treating them as missing.
 - Ingest now de-duplicates by URL per company/quarter, returning `duplicate_of` and skipping final-output appends instead of writing duplicate records.
+- Netflix ingest fixture: ensured each fact within the same article record has a distinct `fact_id` (renumbered a duplicated `fact-1` to `fact-2`).
 - Category display now preserves the combined top-level bucket (`Content, Deals, Distribution`) instead of splitting it into separate arrows, preventing mis-ordered paths like `Content -> Deals -> Distribution -> Sports -> …` in final outputs.
 - Chrome intake capture now requests iframe origins and reports injection failures, restoring right-click scraping of embedded cross-origin articles.
 - Chrome intake link-capture now reports background-tab timeouts (and uses a longer timeout), avoiding silent no-op runs when a site takes too long to load.
@@ -93,6 +101,7 @@ All notable changes to this project will be documented in this file. This projec
 - Routed facts (including non-Content facts) now support one or more follow-on note lines that stay attached to the same fact’s `summary_bullets`, preserving helpful sub-details without creating extra low-value facts.
 - DOCX generation now includes a Highlights section and uses “List Paragraph” styling for non-Content sections (Org/M&A/Investor Relations) with subheading headings, aligning more closely with the manually assembled buyer templates.
 - Exec-change note parsing can now be A/B tested via `EXEC_CHANGE_NOTE_MODE` (`prefixed` vs `unprefixed`), with `exec_changes_unprefixed_note.txt` used in unprefixed mode.
+- Exec-change prompts now prefer placing reporting-line/scope detail in a single attached note line, and renderers output exec-change notes inline after the date so the publish date appears only once (matches the manual buyer template style).
 - Final-output appender now keeps consistent spacing between entries (exactly one blank line), improving readability.
 - Content-deals formatter now detects real date parentheticals instead of any parentheses, so subtitles/alternate-title parentheses still receive the publish date.
 - Ingest server CORS setup now disables credentials when origins resolve to `*`, preventing the FastAPI startup crash caused by the wildcard+credentials combination; explicit origins keep credentials enabled.

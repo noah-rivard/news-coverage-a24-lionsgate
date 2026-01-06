@@ -461,3 +461,75 @@ Content:
 Date: (2025-12-18T00:00:00+00:00)
 
 URL: https://www.latimes.com/entertainment-arts/business/story/2025-12-18/cbs-news-commits-to-more-town-hall-debates-with-major-sponsor
+
+Matched buyers: ['WBD']
+
+Title: 'Heated Rivalry' Renewed for Season 2 at HBO Max and Crave
+
+Category: Content, Deals, Distribution -> TV -> Renewals
+
+Content:
+- Heated Rivalry S2: HBO Max and Crave, romantic drama ([12/12](https://variety.com/2025/tv/news/heated-rivalry-renewed-season-2-hbo-max-crave-1236605666/))
+- HBO Max will continue to license the series for its second season without producing. ([12/12](https://variety.com/2025/tv/news/heated-rivalry-renewed-season-2-hbo-max-crave-1236605666/))
+
+Category: M&A -> General News & Strategy
+
+Content:
+- Bell Media acquired a majority stake in Sphere Abacus earlier this year. ([12/12](https://variety.com/2025/tv/news/heated-rivalry-renewed-season-2-hbo-max-crave-1236605666/))
+
+Date: (2025-12-12T00:00:00+00:00)
+
+URL: https://variety.com/2025/tv/news/heated-rivalry-renewed-season-2-hbo-max-crave-1236605666/
+
+Matched buyers: ['Netflix']
+
+Title: Kpop Demon Hunters Vans Collab: Shop Online
+
+Category: Strategy & Miscellaneous News -> General News & Strategy
+
+Content:
+- Commentary: Vans taps into ‘Kpop Demon Hunters’ phenomenon with new footwear collection ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+- Vans is releasing a Kpop Demon Hunters capsule that places HUNTR/X and their guardians on Classic Slip-On and Sk8-Hi silhouettes while Saja Boys–themed designs appear on Old Skool and Old Skool V styles, with the collection available in stores and online. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+- The line applies the show’s neon-tinged aesthetic and Vans’ checkerboard motif across core footwear silhouettes, integrating character artwork and demon-inspired patterns. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+- The collab expands a broad merchandising push for the franchise that already includes sold-out figurines, a viral streetwear drop with A.C.D.C., a top-performing Etude House beauty crossover, and a tour hoodie that crashed servers. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+
+Category: Strategy & Miscellaneous News -> General News & Strategy -> Strategy
+
+Content:
+- Netflix named Mattel and Hasbro as global "co-master" toy licensees for the property, an unprecedented dual co-master structure. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+- Products from both companies will reach retail in spring 2026. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+
+Category: Content, Deals, Distribution -> TV -> General News & Strategy
+
+Content:
+- Netflix is leveraging the show’s popularity to build a licensing-first franchise, rapidly layering apparel, beauty, toys and food tie-ins. ([12/5](https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/))
+
+Date: (2025-12-05T00:00:00+00:00)
+
+URL: https://variety.com/2025/shopping/news/kpop-demon-hunters-vans-collaboration-shop-online-1236601532/
+
+Matched buyers: ['Sony']
+
+Title: Freddie Highmore To Star In Rom-Com 'Life On Other Planets' From Pat Cunnane
+
+Category: Content, Deals, Distribution -> Film -> Greenlights
+
+Content:
+- Life on Other Planets: Sony Pictures, romantic comedy ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+- Sony is targeting a streaming release. ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+
+Category: Content, Deals, Distribution -> Film -> Greenlights
+
+Content:
+- Augustine & Edgar: Gaumont/TF1, Edgar Allen Poe series ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+- From Gaumont and TF1, it will mark Highmore's French-language acting debut. ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+
+Category: Content, Deals, Distribution -> Film -> Greenlights
+
+Content:
+- Eternity: A24/Star Thrower Entertainment, drama film ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+- Produced for A24 by Star Thrower Entertainment. ([12/12](https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/))
+
+Date: (2025-12-12T00:00:00+00:00)
+
+URL: https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/

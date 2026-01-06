@@ -12,7 +12,7 @@ import typer
 from rich import print as rprint
 
 from .models import Article
-from .workflow import ingest_article, process_article
+from .workflow import build_classification_override, ingest_article, process_article
 from .agent_runner import run_with_agent, run_with_agent_batch
 from .coverage_builder import build_reports
 
@@ -110,6 +110,35 @@ def run(
         "--trace-path",
         help="Optional path to write the agent trace log (overrides --trace default).",
     ),
+    override_category: Optional[str] = typer.Option(
+        None,
+        "--override-category",
+        help=(
+            "Optional full category path override (forces prompt routing). "
+            "Example: 'Strategy & Miscellaneous News -> General News & Strategy -> Strategy'."
+        ),
+    ),
+    override_company: Optional[str] = typer.Option(
+        None,
+        "--override-company",
+        help="Optional company override for ingest routing (defaults to inferred).",
+    ),
+    override_quarter: Optional[str] = typer.Option(
+        None,
+        "--override-quarter",
+        help=(
+            "Optional quarter override for ingest routing "
+            "(defaults to inferred from published_at)."
+        ),
+    ),
+    allow_duplicate_ingest: bool = typer.Option(
+        False,
+        "--allow-duplicate-ingest",
+        help=(
+            "When set, writes a new ingest record even if the URL already exists "
+            "for that company/quarter (useful for manual rerouting)."
+        ),
+    ),
 ):
     """
     Default command: run one article through classify -> summarize -> format -> ingest.
@@ -128,15 +157,46 @@ def run(
     if mode_normalized not in {"agent", "direct"}:
         raise typer.BadParameter("mode must be 'agent' or 'direct'.")
 
+    classification_override = None
+    if override_category:
+        classification_override = build_classification_override(
+            article,
+            category=override_category,
+            company=override_company,
+            quarter=override_quarter,
+        )
+
     if mode_normalized == "agent":
         if trace or trace_path:
             resolved_trace = trace_path or _default_trace_path()
             os.environ["AGENT_TRACE_PATH"] = str(resolved_trace)
-        result = run_with_agent(article)
+        result = run_with_agent(
+            article,
+            classification_override=classification_override,
+            allow_duplicate_ingest=allow_duplicate_ingest,
+        )
     else:
         if trace or trace_path:
             raise typer.BadParameter("Trace logging is only available in --mode agent.")
-        result = process_article(article, ingest_fn=ingest_wrapper)
+        if classification_override is not None:
+            result = process_article(
+                article,
+                classifier_fn=lambda _a, _client: classification_override,
+                ingest_fn=(
+                    (lambda a, cls, summary: ingest_article(a, cls, summary, dedupe=False))
+                    if allow_duplicate_ingest
+                    else ingest_wrapper
+                ),
+            )
+        else:
+            result = process_article(
+                article,
+                ingest_fn=(
+                    (lambda a, cls, summary: ingest_article(a, cls, summary, dedupe=False))
+                    if allow_duplicate_ingest
+                    else ingest_wrapper
+                ),
+            )
 
     rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
 

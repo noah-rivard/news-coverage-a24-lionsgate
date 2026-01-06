@@ -11,11 +11,12 @@ from typing import Any, Dict, Iterable
 
 from fastapi import Body, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from .schema import load_schema, validate_article_payload
 from .models import Article
 from .file_lock import locked_path
+from .reviewer import list_sample_articles, load_article_payload_from_path, render_reviewer_page
 
 
 app = FastAPI(title="News Coverage Ingest")
@@ -85,13 +86,51 @@ def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _run_article_pipeline(article: Article):
+def _run_article_pipeline(
+    article: Article,
+    *,
+    allow_duplicate_ingest: bool = False,
+):
     """
     Lazy import wrapper to avoid circular import between server and workflow/agent_runner.
     """
     from .agent_runner import run_with_agent
 
-    return run_with_agent(article)
+    return run_with_agent(
+        article,
+        allow_duplicate_ingest=allow_duplicate_ingest,
+    )
+
+
+def _run_article_pipeline_override(
+    article: Article,
+    *,
+    override_category: str,
+    override_company: str | None = None,
+    override_quarter: str | None = None,
+    allow_duplicate_ingest: bool = False,
+):
+    """
+    Reroute an article using a manual category override.
+
+    This forces prompt/formatter routing based on the override category and
+    re-runs the summarizer/formatter/ingest. Useful for reviewer workflows
+    where the model picked a plausible but undesirable category.
+    """
+    from .agent_runner import run_with_agent
+    from .workflow import build_classification_override
+
+    classification_override = build_classification_override(
+        article,
+        category=override_category,
+        company=override_company,
+        quarter=override_quarter,
+    )
+    return run_with_agent(
+        article,
+        classification_override=classification_override,
+        allow_duplicate_ingest=allow_duplicate_ingest,
+    )
 
 
 def _run_articles_pipeline(
@@ -260,9 +299,117 @@ def _parse_published_at(raw: str | datetime | None) -> datetime | None:
         ) from exc
 
 
+def _build_article_from_payload(payload: Dict[str, Any]) -> Article:
+    normalized = _normalize_article_payload(payload)
+    # Allow date-only strings; invalid timestamps raise 400.
+    published = _parse_published_at(normalized.get("published_at"))
+    normalized["published_at"] = published
+    return Article(**normalized)
+
+
+def _process_result_body(result) -> dict[str, Any]:
+    cls = getattr(result, "classification", None)
+    body: dict[str, Any] = {
+        "status": "processed",
+        "markdown": result.markdown,
+        "stored_path": str(result.ingest.stored_path),
+        "duplicate_of": getattr(result.ingest, "duplicate_of", None),
+        "classification_category": getattr(cls, "category", None),
+        "prompt_name": None,
+    }
+    if cls is not None:
+        from .workflow import _route_prompt_and_formatter
+
+        body["prompt_name"] = _route_prompt_and_formatter(cls)[0]
+    return body
+
+
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/review", response_class=HTMLResponse)
+def review_page() -> HTMLResponse:
+    html = render_reviewer_page(samples=list_sample_articles())
+    return HTMLResponse(content=html)
+
+
+@app.post("/review/api/load")
+def review_load(body: Dict[str, Any]) -> JSONResponse:
+    try:
+        if "payload" in body and body["payload"] is not None:
+            payload = dict(body["payload"])
+        else:
+            payload = load_article_payload_from_path(str(body.get("path") or ""))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    normalized = dict(payload)
+    if "content" not in normalized and "body" in normalized:
+        normalized["content"] = normalized["body"]
+
+    preview = {
+        "title": normalized.get("title"),
+        "source": normalized.get("source"),
+        "url": normalized.get("url"),
+        "published_at": normalized.get("published_at"),
+        "content_chars": len(str(normalized.get("content") or "")),
+    }
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"payload": normalized, "preview": preview},
+    )
+
+
+@app.post("/review/api/run")
+def review_run(body: Dict[str, Any]) -> JSONResponse:
+    try:
+        if "payload" in body and body["payload"] is not None:
+            payload = dict(body["payload"])
+        else:
+            payload = load_article_payload_from_path(str(body.get("path") or ""))
+        article = _build_article_from_payload(payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:  # validation errors
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        allow_duplicate_ingest = bool(body.get("allow_duplicate_ingest", False))
+        override_category = body.get("override_category")
+        if override_category:
+            result = _run_article_pipeline_override(
+                article,
+                override_category=str(override_category),
+                override_company=(
+                    str(body.get("override_company"))
+                    if body.get("override_company") is not None
+                    else None
+                ),
+                override_quarter=(
+                    str(body.get("override_quarter"))
+                    if body.get("override_quarter") is not None
+                    else None
+                ),
+                allow_duplicate_ingest=allow_duplicate_ingest,
+            )
+        else:
+            result = _run_article_pipeline(
+                article,
+                allow_duplicate_ingest=allow_duplicate_ingest,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=_process_result_body(result),
+    )
 
 
 @app.post("/ingest/article", status_code=status.HTTP_201_CREATED)
@@ -313,18 +460,36 @@ def process_article(
     Returns markdown and ingest metadata.
     """
     try:
-        normalized = _normalize_article_payload(payload)
-        # Allow date-only strings; invalid timestamps raise 400.
-        published = _parse_published_at(normalized.get("published_at"))
-        normalized["published_at"] = published
-        article = Article(**normalized)
+        article = _build_article_from_payload(payload)
     except Exception as exc:  # validation errors
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
     try:
-        result = _run_article_pipeline(article)
+        allow_duplicate_ingest = bool(payload.get("allow_duplicate_ingest", False))
+        override_category = payload.get("override_category")
+        if override_category:
+            result = _run_article_pipeline_override(
+                article,
+                override_category=str(override_category),
+                override_company=(
+                    str(payload.get("override_company"))
+                    if payload.get("override_company") is not None
+                    else None
+                ),
+                override_quarter=(
+                    str(payload.get("override_quarter"))
+                    if payload.get("override_quarter") is not None
+                    else None
+                ),
+                allow_duplicate_ingest=allow_duplicate_ingest,
+            )
+        else:
+            result = _run_article_pipeline(
+                article,
+                allow_duplicate_ingest=allow_duplicate_ingest,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -334,13 +499,10 @@ def process_article(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
 
-    body = {
-        "status": "processed",
-        "markdown": result.markdown,
-        "stored_path": str(result.ingest.stored_path),
-        "duplicate_of": getattr(result.ingest, "duplicate_of", None),
-    }
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=_process_result_body(result),
+    )
 
 
 @app.post("/process/articles", status_code=status.HTTP_201_CREATED)

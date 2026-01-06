@@ -23,7 +23,13 @@ from typing import Callable, List, Optional
 from openai import OpenAI
 
 from .config import get_settings
-from .buyer_routing import BUYER_KEYWORDS, match_buyers, score_buyer_matches
+from .buyer_routing import (
+    BUYER_KEYWORDS,
+    buyers_from_keywords,
+    match_buyers,
+    parse_buyers_of_interest,
+    score_buyer_matches,
+)
 from .file_lock import locked_path
 from .models import Article
 from .schema import validate_article_payload
@@ -34,6 +40,10 @@ _DATE_TEXT_PATTERN = r"(0?[1-9]|1[0-2])/(0?[1-9]|[12][0-9]|3[01])(?:/(\d{2}|\d{4
 DATE_PAREN_PATTERN = re.compile(rf"\(\s*{_DATE_TEXT_PATTERN}\s*\)")
 DATE_LINK_PAREN_PATTERN = re.compile(rf"\(\s*\[\s*{_DATE_TEXT_PATTERN}\s*\]\(")
 SUMMARY_RETRY_CHAR_LIMITS = (12000, 6000)
+_DATE_LINK_TAIL_PATTERN = re.compile(
+    rf"\s*\(\s*\[\s*{_DATE_TEXT_PATTERN}\s*\]\([^)]+\)\s*\)\s*$"
+)
+_DATE_PAREN_TAIL_PATTERN = re.compile(rf"\s*\(\s*{_DATE_TEXT_PATTERN}\s*\)\s*$")
 
 
 # --- Data containers -------------------------------------------------------
@@ -187,6 +197,43 @@ def _infer_company(article: Article) -> str:
         ),
     )
     return scores_sorted[0].buyer
+
+
+def build_classification_override(
+    article: Article,
+    *,
+    category: str,
+    company: str | None = None,
+    quarter: str | None = None,
+    confidence: float | None = 1.0,
+) -> "ClassificationResult":
+    """
+    Build a ClassificationResult without calling the classifier.
+
+    Intended for manual rerouting when a user wants to force a specific
+    category/prompt path for a given article.
+    """
+    category_path = str(category or "").strip()
+    if not category_path:
+        raise ValueError("override category is required.")
+    section, subheading = _parse_category_path(category_path)
+
+    derived_company = company.strip() if company else _infer_company(article)
+    if quarter:
+        derived_quarter = quarter.strip()
+    else:
+        if not article.published_at:
+            raise ValueError("published_at is required to infer quarter.")
+        derived_quarter = _infer_quarter(article.published_at)
+
+    return ClassificationResult(
+        category=category_path,
+        section=section,
+        subheading=subheading,
+        confidence=confidence,
+        company=derived_company,
+        quarter=derived_quarter,
+    )
 
 
 def _normalize_category(raw: str | dict) -> tuple[str, float | None]:
@@ -938,7 +985,86 @@ def _facts_for_article(
     summary: "SummaryResult",
 ) -> List[FactResult]:
     facts = summary.facts or _assemble_facts(summary.bullets, classification, article)
-    return facts or [_fallback_fact_for_empty_summary(article, classification, summary)]
+    if not facts:
+        fallback = _fallback_fact_for_empty_summary(article, classification, summary)
+        settings = get_settings()
+        mode = (settings.fact_buyer_guardrail_mode or "section").strip().lower()
+        if mode == "strict":
+            return _apply_fact_buyer_guardrail(article, classification, summary, [fallback])
+        return [fallback]
+    return _apply_fact_buyer_guardrail(article, classification, summary, facts)
+
+
+def _fact_mentions_in_scope_buyer(fact: FactResult, in_scope: set[str]) -> bool:
+    """
+    Return True when any line for this fact mentions an in-scope buyer keyword.
+    """
+    candidates = [fact.content_line] + list(fact.summary_bullets or [])
+    for text in candidates:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            continue
+        if buyers_from_keywords(cleaned) & in_scope:
+            return True
+    return False
+
+
+def _apply_fact_buyer_guardrail(
+    article: Article,
+    classification: "ClassificationResult",
+    summary: "SummaryResult",
+    facts: List[FactResult],
+) -> List[FactResult]:
+    """
+    Filter facts so cross-section noise doesn't leak into coverage output.
+
+    This is primarily aimed at hybrid articles where the summarizer emits
+    explicit override lines (e.g., "M&A: ...") that are not about any buyer
+    we track.
+    """
+    settings = get_settings()
+    mode = (settings.fact_buyer_guardrail_mode or "section").strip().lower()
+    if mode in {"off", "0", "false", "disabled"}:
+        return facts
+    if mode not in {"section", "strict"}:
+        raise ValueError(
+            f"FACT_BUYER_GUARDRAIL_MODE must be one of off, section, strict (got {mode!r})."
+        )
+
+    in_scope = parse_buyers_of_interest(settings.buyers_of_interest)
+    kept: list[FactResult] = []
+    base_section = classification.section
+
+    for fact in facts:
+        if mode == "section" and fact.section == base_section:
+            kept.append(fact)
+            continue
+        if _fact_mentions_in_scope_buyer(fact, in_scope):
+            kept.append(fact)
+
+    if kept:
+        return kept
+
+    # If everything is filtered, fall back to a single safe fact to satisfy
+    # the ingest schema, while making the buyer linkage explicit when possible.
+    fallback = _fallback_fact_for_empty_summary(article, classification, summary)
+    mentions_in_scope = _fact_mentions_in_scope_buyer(fallback, in_scope)
+    if (
+        classification.company
+        and classification.company in in_scope
+        and not mentions_in_scope
+    ):
+        prefixed = f"{classification.company}: {fallback.content_line}".strip()
+        fallback.content_line = prefixed
+        fallback.summary_bullets = [prefixed]
+        mentions_in_scope = True
+
+    if mode == "strict" and not mentions_in_scope:
+        raise ValueError(
+            "Strict buyer guardrail removed all facts and no in-scope fallback could be produced "
+            f"(company={classification.company!r}, in_scope={sorted(in_scope)!r})."
+        )
+    return [fallback]
 
 
 def _extract_summary_chunks(text: str, expected_count: int) -> List[str]:
@@ -1227,6 +1353,44 @@ def _format_summary_lines(bullets: list[str], date_link: str, url: str) -> list[
     return lines
 
 
+def _strip_trailing_date_marker(text: str) -> str:
+    """
+    Remove a trailing (M/D[/YY]) or ([M/D[/YY]](url)) parenthetical.
+
+    Used when rendering exec-change note lines inline so the publish date appears
+    only once per bullet.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return stripped
+    stripped = _DATE_LINK_TAIL_PATTERN.sub("", stripped).strip()
+    stripped = _DATE_PAREN_TAIL_PATTERN.sub("", stripped).strip()
+    return stripped
+
+
+def _format_exec_change_lines(fact: "FactResult", date_link: str, url: str) -> list[str]:
+    """
+    Render exec-change facts as a single line, appending any note text after the date.
+
+    This mirrors the manual DOCX style (main item + (M/D) + appended clause) and
+    avoids repeating the date marker on the follow-on note sentence.
+    """
+    bullets = [b for b in (fact.summary_bullets or []) if (b or "").strip()]
+    if not bullets:
+        text = (fact.content_line or "").strip()
+        return [_format_summary_lines([text], date_link, url)[0]] if text else [""]
+
+    main = _linkify_date_parentheticals(bullets[0].strip(), url)
+    if main and not _has_date_marker(main):
+        main = f"{main} ({date_link})"
+
+    notes = [_strip_trailing_date_marker(_linkify_date_parentheticals(b, url)) for b in bullets[1:]]
+    notes = [n.strip() for n in notes if (n or "").strip()]
+    if notes:
+        return [f"{main} {' '.join(notes)}".strip()]
+    return [main]
+
+
 def _fact_summary_bullets(fact: "FactResult") -> list[str]:
     """
     Return the list of summary bullet strings to render for a fact.
@@ -1276,7 +1440,10 @@ def format_final_output_entry(
 
     for fact in facts:
         category_display = _format_category_display(fact.category_path)
-        content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
+        if fact.category_path == "Org -> Exec Changes":
+            content_lines = _format_exec_change_lines(fact, date_link, url)
+        else:
+            content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
         lines.extend(
             [
                 "",
@@ -1364,7 +1531,10 @@ def format_markdown(
     lines = [f"Title: {article.title}"]
     for fact in facts:
         category_display = _format_category_display(fact.category_path)
-        content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
+        if fact.category_path == "Org -> Exec Changes":
+            content_lines = _format_exec_change_lines(fact, date_link, url)
+        else:
+            content_lines = _format_summary_lines(_fact_summary_bullets(fact), date_link, url)
         lines.append(f"Category: {category_display}")
         lines.extend([f"Content: {line}" for line in (content_lines or [""])])
     return "\n".join(lines)
@@ -1374,6 +1544,8 @@ def ingest_article(
     article: Article,
     classification: ClassificationResult,
     summary: SummaryResult,
+    *,
+    dedupe: bool = True,
 ) -> IngestResult:
     facts = _facts_for_article(article, classification, summary)
     schema_payload = {
@@ -1408,7 +1580,7 @@ def ingest_article(
     duplicate_of = None
     with locked_path(path):
         _ensure_parent(path)
-        if _jsonl_contains_url(path, validated["url"]):
+        if dedupe and _jsonl_contains_url(path, validated["url"]):
             duplicate_of = validated["url"]
         else:
             with path.open("a", encoding="utf-8") as f:
