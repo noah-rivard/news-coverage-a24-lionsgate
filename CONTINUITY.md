@@ -11,19 +11,22 @@
 - In strict mode, when all facts are filtered and no in-scope fallback can be produced, raise `ValueError` (fail fast) rather than emitting an out-of-scope fallback fact.
 
 ## State:
-- Preparing commit; codebase has uncommitted changes.
+- Commit created on `main`; working tree expected clean.
 
 ## Done:
 - Updated ledger for commit workflow.
+- Ran `pytest` (77 passed) and `flake8` (clean).
+- Staged all changes and committed.
 
 ## Now:
-- Run `pytest` and `flake8` to validate the working tree before staging/committing.
+- Verify `git status` is clean.
 
 ## Next:
-- Stage changes and create a commit with an accurate message.
+- Push the commit if desired.
 
 ## Open questions (UNCONFIRMED if needed):
 - None.
 
 ## Working set (files/ids/commands):
-- Commands: `git status`, `git diff`, `pytest`, `flake8`
+- Commit: `4c78b72`
+- Commands: `pytest`, `flake8`, `git add -A`, `git commit`, `git status`
