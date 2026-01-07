@@ -12,9 +12,11 @@ from news_coverage.workflow import (
 
 
 class FakeResult:
-    def __init__(self, context, final_output=""):
+    def __init__(self, context, final_output="", raw_responses=None, last_response_id=None):
         self.context_wrapper = type("Ctx", (), {"context": context})
         self.final_output = final_output
+        self.raw_responses = raw_responses or []
+        self.last_response_id = last_response_id
 
 
 class FakeRunner:
@@ -107,11 +109,49 @@ def test_run_with_agent_uses_runner_and_context(monkeypatch, tmp_path):
     assert result.summary == summary
     assert result.ingest == ingest
     assert result.markdown == markdown
+    assert isinstance(result.openai_response_ids, dict)
     # Ensure the manager agent was constructed with the expected tools.
     starting_agent = runner.calls[0][0]
     assert starting_agent.name == "manager"
     assert len(starting_agent.tools) == 4
     assert "Title: Sample Story" in final_path.read_text(encoding="utf-8")
+
+
+def test_run_with_agent_records_manager_response_ids(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AGENT_TRACE_PATH", "")
+    final_path = tmp_path / "final_output.md"
+    monkeypatch.setenv("FINAL_OUTPUT_PATH", str(final_path))
+    classification, summary, ingest, markdown = _make_stubs(tmp_path)
+
+    class StubModelResponse:
+        def __init__(self, response_id: str):
+            self.response_id = response_id
+
+    class RunnerWithResponses(FakeRunner):
+        def run_sync(self, starting_agent, input, context=None, **kwargs):
+            self.calls.append((starting_agent, input, kwargs))
+            context.classification = self.classification
+            context.summary = self.summary
+            context.ingest = self.ingest
+            context.markdown = self.markdown
+            return FakeResult(
+                context,
+                final_output=self.markdown,
+                raw_responses=[StubModelResponse("resp_a"), StubModelResponse("resp_b")],
+                last_response_id="resp_b",
+            )
+
+    runner = RunnerWithResponses(classification, summary, ingest, markdown)
+    article = Article(
+        title="Sample Story",
+        source="Demo",
+        url="https://example.com/story",
+        content="A24 expands its slate.",
+    )
+
+    result = run_with_agent(article, runner=runner)
+    assert result.openai_response_ids["manager_agent"] == ["resp_a", "resp_b"]
 
 
 def test_run_with_agent_batch_collects_errors(monkeypatch, tmp_path):

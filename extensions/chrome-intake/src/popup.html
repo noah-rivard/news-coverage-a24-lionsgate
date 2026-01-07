@@ -23,6 +23,22 @@
       <span class="label">Published</span>
       <div id="published"></div>
     </div>
+    <div class="field">
+      <span class="label">OpenAI response IDs</span>
+      <div id="openai_response_ids" style="font-family: monospace; font-size: 11px; white-space: pre-wrap;"></div>
+    </div>
+    <div class="field">
+      <span class="label">Links</span>
+      <div id="links_meta" style="font-size: 11px; color: #444;"></div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+        <button id="open_endpoint">Open endpoint</button>
+        <button id="open_options">Options</button>
+        <button id="open_review">Reviewer</button>
+        <button id="open_health">Health</button>
+        <button id="open_openai_logs">OpenAI logs</button>
+        <button id="open_process_articles">/process/articles</button>
+      </div>
+    </div>
     <button id="send">Send to ingest</button>
     <div id="status"></div>
     <script src="popup.js"></script>

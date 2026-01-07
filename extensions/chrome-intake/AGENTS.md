@@ -5,6 +5,7 @@
 Gotchas and expectations:
 - Build with `npm run build` (esbuild) to emit `dist/`. Load `dist/` as the unpacked extension in Chrome. The build script now uses `fileURLToPath` so Windows paths (double drive letters) no longer break `npm run build`.
 - Service worker stores the latest scraped article in `chrome.storage.local` and auto-sends the selected (latest) article to the configured endpoint in `chrome.storage.sync` (default `http://localhost:8000/process/articles`). The popup is mainly for status or manual resend.
+- When using `/process/articles`, the popup now displays `openai_response_ids` returned by the server (when present) and includes quick links to open the configured endpoint, server `/review` and `/health`, and OpenAI Responses logs.
 - Quarter is derived from the article date (prefers `published_at`, falls back to `scrapedAt`, then the current date) before posting; nothing is hard-coded in the payload.
 - Content script uses `@mozilla/readability`; if a page blocks script injection, reloading may be required.
 - Manifest requires only Feedly origins at install and lists all other origins as optional host permissions. The content script is no longer auto-injected; scraping happens on demand after a per-origin permission grant.

@@ -15,9 +15,10 @@ type ArticlePayload = {
 };
 
 type StoredArticle = ArticlePayload & { scrapedAt: string };
+type OpenAIResponseIds = Record<string, string[]>;
 type SendResult =
-  | { status: "ok"; duplicate_of?: string }
-  | { status: "duplicate"; duplicate_of: string }
+  | { status: "ok"; duplicate_of?: string; openai_response_ids?: OpenAIResponseIds }
+  | { status: "duplicate"; duplicate_of: string; openai_response_ids?: OpenAIResponseIds }
   | { status: "error"; error: string };
 
 function deriveQuarter(publishedAt?: string, scrapedAt?: string): string {
@@ -118,11 +119,15 @@ async function sendSingle(endpoint: string, body: Record<string, unknown>): Prom
       const detail = parsed?.detail || text || resp.statusText;
       return { status: "error", error: detail };
     }
+    const openai_response_ids =
+      parsed?.openai_response_ids && typeof parsed.openai_response_ids === "object"
+        ? (parsed.openai_response_ids as OpenAIResponseIds)
+        : undefined;
     const duplicate_of = parsed?.duplicate_of;
     if (duplicate_of) {
-      return { status: "duplicate", duplicate_of };
+      return { status: "duplicate", duplicate_of, openai_response_ids };
     }
-    return { status: "ok", duplicate_of };
+    return { status: "ok", duplicate_of, openai_response_ids };
   } catch (err: any) {
     return { status: "error", error: err?.message || String(err) };
   }
@@ -178,12 +183,16 @@ async function sendProcessBatchSingle(endpoint: string, article: StoredArticle):
 
     const item = results.find((r: any) => Number(r?.index) === 0) ?? results[0];
     const status = item?.status;
+    const openai_response_ids =
+      item?.openai_response_ids && typeof item.openai_response_ids === "object"
+        ? (item.openai_response_ids as OpenAIResponseIds)
+        : undefined;
     if (status === "processed" || status === "duplicate") {
       const duplicate_of = typeof item?.duplicate_of === "string" ? item.duplicate_of : undefined;
       if (duplicate_of) {
-        return { status: "duplicate", duplicate_of };
+        return { status: "duplicate", duplicate_of, openai_response_ids };
       }
-      return { status: "ok" };
+      return { status: "ok", openai_response_ids };
     }
     if (status === "invalid") {
       return { status: "error", error: item?.error || "Article payload was invalid." };

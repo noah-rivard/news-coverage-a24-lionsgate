@@ -533,3 +533,25 @@ Content:
 Date: (2025-12-12T00:00:00+00:00)
 
 URL: https://deadline.com/2025/12/freddie-highmore-to-star-life-on-other-planets-pat-cunnane-1236647035/
+
+Matched buyers: ['Netflix']
+
+Title: 'Stranger Things 5' Finale Has 1.1 Million RSVPs in Movie Theaters
+
+Category: Content, Deals, Distribution -> TV -> General News & Strategy
+
+Content:
+- Commentary: 'Stranger Things 5' finale has 1.1 million RSVPs in movie theaters, says Ross Duffer: '3,500 showtimes are completely full' ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+- 1.1 million people have RSVP'd to in-theater screenings and 3,500 showtimes across more than 620 theaters are completely sold out. ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+
+Category: Content, Deals, Distribution -> TV -> General News & Strategy
+
+Content:
+- The series finale is being screened in movie theaters concurrently with its Netflix release, positioning the finale as a hybrid theatrical-television event. ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+- The series has driven massive scale and economic impact, with Variety reporting it crossed 1.2 billion views and contributed more than $1.4 billion to U.S. GDP. ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+- Season 5 posted Netflix's biggest opening week ever for an English-language TV series and is expected to join the streamer’s most popular list once it becomes eligible. ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+- Co-creator Ross Duffer said he and Matt Duffer may attend screenings, underscoring the finale’s event status. ([12/29](https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/))
+
+Date: (2025-12-29T00:00:00+00:00)
+
+URL: https://variety.com/2025/tv/news/stranger-things-5-finale-rsvp-movie-theaters-1236619699/

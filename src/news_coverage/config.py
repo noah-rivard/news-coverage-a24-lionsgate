@@ -10,6 +10,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
+    openai_store: bool = Field(
+        True,
+        alias="OPENAI_STORE",
+        description=(
+            "Whether to store Responses server-side for later retrieval by response.id. "
+            "When false, requests explicitly send store=false."
+        ),
+    )
     manager_model: str = Field(
         "gpt-5.1", description="Coordinator/manager model for tool orchestration."
     )

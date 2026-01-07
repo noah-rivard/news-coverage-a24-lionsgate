@@ -2,6 +2,7 @@
 
 - Default classifier/summarizer rely on the OpenAI Responses API. `process_article` only builds a client (and therefore requires `OPENAI_API_KEY`) when those defaults are used; when injecting both tools or passing a client, it will run offline for tests.
 - Injected tools must accept a `client` argument that can be `None` when you provide both classifier and summarizer; return the same dataclasses used in `workflow.py`.
+- OpenAI response correlation: Responses calls set `store` from `OPENAI_STORE` (default true) and pipeline results include `openai_response_ids` so runs can be traced back to OpenAI dashboard/API by `response.id`.
 - Ingest writes JSONL files under `data/ingest/{company}/{quarter}.jsonl` after schema validation; keep file paths stable so Chrome extension/back-end stay in sync.
 - Ingest does not de-duplicate; repeated URLs are stored again and will produce additional final-output entries.
 - Summarizer calls skip the `temperature` parameter when `SUMMARIZER_MODEL` is `gpt-5-mini` (model rejects it).
@@ -32,4 +33,5 @@
 - Facts are filtered through a buyer guardrail to reduce cross-section noise from hybrid articles: with `FACT_BUYER_GUARDRAIL_MODE=section` (default), facts outside the classifier's primary section must mention an in-scope buyer (configured via `BUYERS_OF_INTEREST`) to be kept; use `strict` to require an in-scope buyer mention for all facts, or `off` to disable filtering.
 - Article title/content are normalized for common mojibake before classification and summarization, with a brief note recorded in agent traces when enabled.
 - Manager-agent runs can append a plain-text trace log when `AGENT_TRACE_PATH` is set (or the CLI `--trace`/`--trace-path` flags); the log captures raw article content, tool calls/outputs, and the final markdown to help debug truncation issues.
+- Agent trace logs and structured run outputs include OpenAI `response.id` values under `openai_response_ids` for correlation; set `OPENAI_STORE=false` to avoid storing responses server-side.
 - JSONL ingest writes, final-output appends, and trace logs are guarded with process-local file locks so parallel runs do not interleave writes.

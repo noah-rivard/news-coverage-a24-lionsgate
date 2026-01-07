@@ -12,13 +12,15 @@ and/or a provided client allow offline or preconfigured usage for tests.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 import re
-from typing import Callable, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 from openai import OpenAI
 
@@ -91,6 +93,39 @@ class PipelineResult:
     classification: ClassificationResult
     summary: SummaryResult
     ingest: IngestResult
+    openai_response_ids: dict[str, list[str]] = field(default_factory=dict)
+
+
+OpenAIResponseIdMap = dict[str, list[str]]
+_OPENAI_RESPONSE_IDS: ContextVar[OpenAIResponseIdMap | None] = ContextVar(
+    "news_coverage_openai_response_ids", default=None
+)
+
+
+def _record_openai_response_id(step: str, response: object) -> None:
+    response_id_map = _OPENAI_RESPONSE_IDS.get()
+    if response_id_map is None:
+        return
+    response_id = getattr(response, "id", None)
+    if not response_id:
+        return
+    response_id_map.setdefault(step, []).append(str(response_id))
+
+
+@contextmanager
+def collect_openai_response_ids() -> Iterator[OpenAIResponseIdMap]:
+    """
+    Collect `response.id` values from OpenAI Responses calls made inside the context.
+
+    Call sites record IDs opportunistically; injected tools that don't use the OpenAI
+    client will leave the mapping empty.
+    """
+    mapping: OpenAIResponseIdMap = {}
+    token = _OPENAI_RESPONSE_IDS.set(mapping)
+    try:
+        yield mapping
+    finally:
+        _OPENAI_RESPONSE_IDS.reset(token)
 
 
 # --- Helpers --------------------------------------------------------------
@@ -1135,7 +1170,9 @@ def classify_article(article: Article, client: OpenAI) -> ClassificationResult:
         ],
         max_output_tokens=200,
         temperature=0.0,
+        store=settings.openai_store,
     )
+    _record_openai_response_id("classifier", response)
     category_raw = _response_text_or_raise(response, step="Classifier")
     category, conf = _normalize_category(category_raw)
     section, subheading = _parse_category_path(category)
@@ -1188,6 +1225,7 @@ def _summarizer_request_kwargs(settings, messages: list[dict[str, str]]) -> dict
     request_kwargs = {
         "model": settings.summarizer_model,
         "input": messages,
+        "store": settings.openai_store,
     }
     if settings.max_tokens and settings.max_tokens > 0:
         request_kwargs["max_output_tokens"] = settings.max_tokens
@@ -1211,6 +1249,7 @@ def summarize_article(article: Article, prompt_name: str, client: OpenAI) -> Sum
             ],
         )
         response = client.responses.create(**request_kwargs)
+        _record_openai_response_id("summarizer", response)
         reason = _incomplete_reason(response)
         if reason == "max_output_tokens" and idx + 1 < len(content_limits):
             continue
@@ -1283,6 +1322,7 @@ def summarize_articles_batch(
         if settings.max_tokens and settings.max_tokens > 0:
             request_kwargs["max_output_tokens"] = settings.max_tokens * max(1, len(articles))
         response = client.responses.create(**request_kwargs)
+        _record_openai_response_id("summarizer_batch", response)
         reason = _incomplete_reason(response)
         if reason == "max_output_tokens" and idx + 1 < len(content_limits):
             continue
@@ -1743,14 +1783,15 @@ def process_article(
         api_key = _require_api_key(settings)
         client = build_client(api_key)
 
-    classification = classifier_fn(article, client)
-    prompt_name, routed_formatter = _route_prompt_and_formatter(classification)
-    active_formatter = formatter_fn or routed_formatter
-    summary = summarizer_fn(article, prompt_name, client)
-    if not summary.facts:
-        summary.facts = _assemble_facts(summary.bullets, classification, article)
-    markdown = active_formatter(article, classification, summary)
-    ingest_result = ingest_fn(article, classification, summary)
+    with collect_openai_response_ids() as openai_response_ids:
+        classification = classifier_fn(article, client)
+        prompt_name, routed_formatter = _route_prompt_and_formatter(classification)
+        active_formatter = formatter_fn or routed_formatter
+        summary = summarizer_fn(article, prompt_name, client)
+        if not summary.facts:
+            summary.facts = _assemble_facts(summary.bullets, classification, article)
+        markdown = active_formatter(article, classification, summary)
+        ingest_result = ingest_fn(article, classification, summary)
 
     if not ingest_result.duplicate_of:
         append_final_output_entry(article, classification, summary)
@@ -1760,4 +1801,5 @@ def process_article(
         classification=classification,
         summary=summary,
         ingest=ingest_result,
+        openai_response_ids=openai_response_ids,
     )

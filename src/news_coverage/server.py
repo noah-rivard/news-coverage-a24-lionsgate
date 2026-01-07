@@ -317,6 +317,9 @@ def _process_result_body(result) -> dict[str, Any]:
         "classification_category": getattr(cls, "category", None),
         "prompt_name": None,
     }
+    openai_response_ids = getattr(result, "openai_response_ids", None)
+    if openai_response_ids:
+        body["openai_response_ids"] = openai_response_ids
     if cls is not None:
         from .workflow import _route_prompt_and_formatter
 
@@ -580,15 +583,17 @@ def process_articles(
             continue
 
         processed_count += 1
-        results.append(
-            {
-                "index": original_index,
-                "status": "processed",
-                "markdown": item.result.markdown,
-                "stored_path": str(item.result.ingest.stored_path),
-                "duplicate_of": getattr(item.result.ingest, "duplicate_of", None),
-            }
-        )
+        processed_item = {
+            "index": original_index,
+            "status": "processed",
+            "markdown": item.result.markdown,
+            "stored_path": str(item.result.ingest.stored_path),
+            "duplicate_of": getattr(item.result.ingest, "duplicate_of", None),
+        }
+        openai_response_ids = getattr(item.result, "openai_response_ids", None)
+        if openai_response_ids:
+            processed_item["openai_response_ids"] = openai_response_ids
+        results.append(processed_item)
 
     for error in errors:
         results.append(

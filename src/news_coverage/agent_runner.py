@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from agents import Agent, Runner, function_tool, OpenAIResponsesModel
+from agents import Agent, Runner, function_tool, OpenAIResponsesModel, ModelSettings
 from openai import AsyncOpenAI, OpenAI
 
 from .config import get_settings
@@ -23,6 +23,7 @@ from .workflow import (
     SummaryResult,
     build_client,
     classify_article,
+    collect_openai_response_ids,
     append_final_output_entry,
     format_markdown,
     ingest_article,
@@ -92,25 +93,27 @@ def _format_trace_log(
     *,
     created_at: datetime,
     duration_ms: int,
+    response_id: str | None,
     model: str,
     instructions: str,
     input_text: str,
     raw_content: str | None,
     normalization_note: str | None,
     tool_events: list[dict[str, Any]],
+    openai_response_ids: dict[str, list[str]] | None,
     final_output: str,
 ) -> str:
     lines: list[str] = [
         "POST",
         "/v1/responses",
         "response",
-        "unknown",
+        response_id or "unknown",
         f"{duration_ms}ms",
         "Properties",
         "Created",
         created_at.strftime("%b %d, %Y, %I:%M %p UTC"),
         "ID",
-        "unknown",
+        response_id or "unknown",
         "Model",
         model,
         "Tokens",
@@ -159,6 +162,14 @@ def _format_trace_log(
                 f"{tool_name}()",
                 "Output",
                 output_text,
+            ]
+        )
+
+    if openai_response_ids:
+        lines.extend(
+            [
+                "OpenAI response IDs",
+                json.dumps(openai_response_ids, ensure_ascii=True),
             ]
         )
 
@@ -295,20 +306,32 @@ def run_with_agent(
         instructions=instructions,
         tools=tools,
         model=OpenAIResponsesModel(settings.manager_model, async_client),
+        model_settings=ModelSettings(store=settings.openai_store),
         output_type=str,
     )
 
     active_runner = runner or Runner()
     input_text = "Process the provided article in context.article"
     start_time = datetime.now(timezone.utc)
-    result = active_runner.run_sync(
-        agent,
-        input=input_text,
-        context=context,
-        max_turns=8,
-    )
+    with collect_openai_response_ids() as openai_response_ids:
+        result = active_runner.run_sync(
+            agent,
+            input=input_text,
+            context=context,
+            max_turns=8,
+        )
     end_time = datetime.now(timezone.utc)
     duration_ms = max(0, int((end_time - start_time).total_seconds() * 1000))
+
+    raw_responses = getattr(result, "raw_responses", None)
+    if raw_responses:
+        manager_ids: list[str] = []
+        for item in raw_responses:
+            response_id = getattr(item, "response_id", None) or getattr(item, "id", None)
+            if response_id:
+                manager_ids.append(str(response_id))
+        if manager_ids:
+            openai_response_ids.setdefault("manager_agent", []).extend(manager_ids)
 
     if not context.classification or not context.summary or not context.ingest:
         raise RuntimeError("Agent run did not complete all pipeline steps.")
@@ -318,9 +341,11 @@ def run_with_agent(
     )
 
     if settings.agent_trace_path:
+        trace_response_id = getattr(result, "last_response_id", None)
         trace_text = _format_trace_log(
             created_at=start_time,
             duration_ms=duration_ms,
+            response_id=trace_response_id,
             model=settings.manager_model,
             instructions=instructions,
             input_text=input_text,
@@ -333,6 +358,7 @@ def run_with_agent(
                 }
                 for event in context.trace_events
             ],
+            openai_response_ids=openai_response_ids,
             final_output=markdown_text,
         )
         _append_trace_log(trace_text, settings.agent_trace_path)
@@ -345,6 +371,7 @@ def run_with_agent(
         classification=context.classification,
         summary=context.summary,
         ingest=context.ingest,
+        openai_response_ids=openai_response_ids,
     )
 
 

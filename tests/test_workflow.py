@@ -13,10 +13,98 @@ from news_coverage.workflow import (
     format_markdown,
     format_final_output_entry,
     normalize_article_text,
+    classify_article,
     process_article,
     summarize_article,
     summarize_articles_batch,
 )
+
+
+class _FakeResponse:
+    def __init__(self, response_id: str, output_text: str):
+        self.id = response_id
+        self.output_text = output_text
+
+
+class _FakeResponses:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self._responses.pop(0)
+
+
+class _FakeClient:
+    def __init__(self, responses):
+        self.responses = _FakeResponses(responses)
+
+
+def test_openai_store_defaults_true_and_records_response_ids(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_STORE", raising=False)
+    article = Article(
+        title="Stored Story",
+        source="Demo",
+        url="https://example.com/stored",
+        content="A24 announces a new project.",
+        published_at=datetime(2025, 12, 5, tzinfo=timezone.utc),
+    )
+
+    fake_client = _FakeClient(
+        [
+            _FakeResponse(
+                "resp_classifier",
+                (
+                    '{"category":"Strategy & Miscellaneous News -> General News & Strategy",'
+                    '"confidence":0.9}'
+                ),
+            ),
+            _FakeResponse("resp_summarizer", "- First point\n- Second point"),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "news_coverage.workflow._load_prompt_file", lambda _name: "prompt"
+    )
+
+    def fake_ingest(a, cls, summary):
+        return IngestResult(
+            stored_path=tmp_path / "out.jsonl",
+            duplicate_of=str(a.url),
+        )
+
+    result = process_article(article, client=fake_client, ingest_fn=fake_ingest)
+
+    assert result.openai_response_ids["classifier"] == ["resp_classifier"]
+    assert result.openai_response_ids["summarizer"] == ["resp_summarizer"]
+    assert fake_client.responses.calls[0]["store"] is True
+    assert fake_client.responses.calls[1]["store"] is True
+
+
+def test_openai_store_false_is_forwarded(monkeypatch):
+    monkeypatch.setenv("OPENAI_STORE", "false")
+    article = Article(
+        title="No Store",
+        source="Demo",
+        url="https://example.com/no-store",
+        content="A24 in the news.",
+        published_at=datetime(2025, 12, 5, tzinfo=timezone.utc),
+    )
+    fake_client = _FakeClient(
+        [
+            _FakeResponse(
+                "resp_classifier",
+                (
+                    '{"category":"Strategy & Miscellaneous News -> General News & Strategy",'
+                    '"confidence":0.9}'
+                ),
+            )
+        ]
+    )
+
+    classify_article(article, fake_client)
+    assert fake_client.responses.calls[0]["store"] is False
 
 
 def test_process_article_uses_injected_tools(tmp_path, monkeypatch):

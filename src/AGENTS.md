@@ -6,6 +6,7 @@ Gotchas and expectations:
 - Use the OpenAI Responses API (`openai>=1.54.0`) and Agents SDK (`openai-agents>=0.6.1`). Prefer the Responses API over legacy completions.
 - Keep agent calls mockable in tests. Expose a helper to inject a client or stub so unit tests never hit the network.
 - Centralize configuration (API keys, model names, timeouts) in `config.py` and rely on environment variables rather than hard-coded secrets.
+- OpenAI response correlation: Responses calls set `store` from `OPENAI_STORE` (default true) and pipeline results include `openai_response_ids` so runs can be traced back to OpenAI dashboard/API by `response.id`.
 - The coordinator pipeline (`workflow.process_article`) is single-article and stateless. It builds an OpenAI client only when default classifier/summarizer tools are used; injected tools plus/or a provided client allow offline tests. It routes prompts/formatters via a declarative table keyed off classifier category substrings; when `confidence` is below `routing_confidence_floor` (default 0.5) it falls back to `general_news.txt`.
 - Favor Pydantic models for external inputs/outputs to keep validation strict and user-facing text consistent.
 - Any change to behavior or structure here must be mirrored in this `AGENTS.md` and documented in `README.md` plus `CHANGELOG.md`.
@@ -32,6 +33,7 @@ Recent changes:
 - Final-output "Matched buyers" display now uses strong matches (title/lead/URL host) plus the primary company, excluding body-only mentions from that list.
 - After a successful ingest the pipeline appends the formatted final-output block (with matched buyers and ISO timestamp) to `docs/templates/final_output.md`; override via `FINAL_OUTPUT_PATH` for tests or alternate destinations. Each fact renders `Content:` as a bullet list so multi-bullet facts are preserved without repeating `Content:` labels; bullets add date parentheticals only when missing.
 - Duplicate handling is now idempotent: repeated URLs for the same company/quarter are skipped during ingest, responses include `duplicate_of`, and final-output appends are suppressed for duplicates; the Chrome extension surfaces this status.
+- Pipeline now records OpenAI `response.id` values into structured outputs (`openai_response_ids`) and agent trace logs; configure response storage via `OPENAI_STORE`.
 - File appends for ingest JSONL, final outputs, and agent traces are guarded by process-local locks to prevent interleaved writes during concurrent runs.
 - The ingest schema now requires a `facts` array (min 1) per article. Each fact carries its own category/subheading/company/quarter/published_at plus `content_line` and `summary_bullets`; legacy single-category fields are deprecated. Formatting/appenders render one Title with multiple Category/Content pairs in model order.
 - Facts are filtered through a buyer guardrail: by default (`FACT_BUYER_GUARDRAIL_MODE=section`) cross-section facts are dropped unless they mention an in-scope buyer; set `FACT_BUYER_GUARDRAIL_MODE=strict` to require an in-scope buyer mention for all facts, or `off` to disable. Limit in-scope buyers via `BUYERS_OF_INTEREST`.

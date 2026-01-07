@@ -93,11 +93,12 @@
         const detail = parsed?.detail || text || resp.statusText;
         return { status: "error", error: detail };
       }
+      const openai_response_ids = parsed?.openai_response_ids && typeof parsed.openai_response_ids === "object" ? parsed.openai_response_ids : void 0;
       const duplicate_of = parsed?.duplicate_of;
       if (duplicate_of) {
-        return { status: "duplicate", duplicate_of };
+        return { status: "duplicate", duplicate_of, openai_response_ids };
       }
-      return { status: "ok", duplicate_of };
+      return { status: "ok", duplicate_of, openai_response_ids };
     } catch (err) {
       return { status: "error", error: err?.message || String(err) };
     }
@@ -142,12 +143,13 @@
       }
       const item = results.find((r) => Number(r?.index) === 0) ?? results[0];
       const status = item?.status;
+      const openai_response_ids = item?.openai_response_ids && typeof item.openai_response_ids === "object" ? item.openai_response_ids : void 0;
       if (status === "processed" || status === "duplicate") {
         const duplicate_of = typeof item?.duplicate_of === "string" ? item.duplicate_of : void 0;
         if (duplicate_of) {
-          return { status: "duplicate", duplicate_of };
+          return { status: "duplicate", duplicate_of, openai_response_ids };
         }
-        return { status: "ok" };
+        return { status: "ok", openai_response_ids };
       }
       if (status === "invalid") {
         return { status: "error", error: item?.error || "Article payload was invalid." };

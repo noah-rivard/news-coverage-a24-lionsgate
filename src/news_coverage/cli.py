@@ -60,6 +60,17 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
+def _format_openai_response_ids(response_ids: dict[str, list[str]] | None) -> str | None:
+    if not response_ids:
+        return None
+    parts: list[str] = []
+    for key in sorted(response_ids.keys()):
+        ids = response_ids.get(key) or []
+        if ids:
+            parts.append(f"{key}={', '.join(ids)}")
+    return "; ".join(parts) if parts else None
+
+
 def _write_output(out_path: Path, markdown: str, json_payload: dict) -> None:
     suffix = out_path.suffix.lower()
     if suffix == ".json":
@@ -199,6 +210,9 @@ def run(
             )
 
     rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
+    ids_text = _format_openai_response_ids(getattr(result, "openai_response_ids", None))
+    if ids_text:
+        rprint(f"[dim]OpenAI response IDs: {ids_text}[/dim]")
 
     if out:
         _write_output(out, result.markdown, _to_plain(result))
@@ -351,6 +365,9 @@ def batch_command(
             rprint(f"[red]Failed {path}: {error}[/red]")
             continue
         rprint(f"[green]Stored at {result.ingest.stored_path}[/green]")
+        ids_text = _format_openai_response_ids(getattr(result, "openai_response_ids", None))
+        if ids_text:
+            rprint(f"[dim]OpenAI response IDs: {ids_text}[/dim]")
 
         if outdir:
             out_path = _batch_output_path(outdir, path, idx, fmt)

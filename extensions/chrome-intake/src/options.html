@@ -14,6 +14,18 @@
     <label for="endpoint">Ingest endpoint</label>
     <input id="endpoint" type="text" placeholder="http://localhost:8000/ingest/article" />
     <button id="save">Save</button>
+    <div style="margin-top: 16px;">
+      <div style="font-weight: bold; margin-bottom: 6px;">Links</div>
+      <div id="links_meta" style="font-size: 12px; color: #444; white-space: pre-wrap;"></div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; max-width: 520px;">
+        <button id="open_endpoint" type="button">Open endpoint</button>
+        <button id="open_openai_logs" type="button">OpenAI logs</button>
+        <button id="open_review" type="button">Reviewer</button>
+        <button id="open_health" type="button">Health</button>
+        <button id="open_process_articles" type="button">/process/articles</button>
+        <button id="open_ingest_article" type="button">/ingest/article</button>
+      </div>
+    </div>
     <div id="status"></div>
     <script src="options.js"></script>
   </body>
