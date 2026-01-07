@@ -8,9 +8,14 @@ All notable changes to this project will be documented in this file. This projec
 - Chrome intake extension now exposes a right-click context menu for pages and embedded frames so users can trigger a scrape on the clicked frame; manifest includes the `contextMenus` permission to support it.
 - FastAPI `/process/articles` endpoint to process multiple articles in one request with per-item status and optional concurrency controls.
 - Helper script to generate a side-by-side A/B comparison report from per-article `*.out.md` outputs (`tools/compare_ab_outputs.py`).
+- Repo-local Codex CLI skills vendored under `.codex/skills/` to keep agent tooling consistent across the team.
 
 ### Changed
 - Disable OpenAI Agents SDK trace export by default to avoid non-fatal 503 retry spam; override with `OPENAI_AGENTS_DISABLE_TRACING=false`.
+- OpenAI Responses calls now record `response.id` values in structured run outputs (and agent trace logs) and send `store=true` by default; override with `OPENAI_STORE=false`.
+- `flake8` now excludes `.codex/` (vendored Codex skills) from linting.
+- Chrome extension popup now displays `openai_response_ids` returned by the `/process/articles` pipeline endpoint (when present) to make dashboard correlation easy.
+- Chrome extension popup/options now include one-click navigation links to the configured endpoint, server `/review` and `/health`, and OpenAI Responses logs.
 - Manual category override for rerouting: CLI `--override-category` and `/process/article` supports `override_category` to re-run prompt routing/summarization under a chosen category.
 - Local reviewer page at `/review` to click-select a category override and rerun the pipeline without editing JSON.
 - Buyer-focused fact guardrail that filters out cross-section facts which don't mention any in-scope buyers; configure with `FACT_BUYER_GUARDRAIL_MODE` and `BUYERS_OF_INTEREST`.

@@ -20,10 +20,12 @@ python -m news_coverage.cli path/to/article.json
 
 Add `--out output.json` to write both the structured run output and ingest metadata as JSON (file-system paths are rendered as strings for portability). If omitted, Markdown is printed to stdout. Use `--trace` to append an agent trace log for that run under `docs/traces/` (includes raw article content).
 
+By default, OpenAI Responses requests are sent with `store=true` so you can correlate a run with the OpenAI dashboard and (if needed) retrieve a stored response later by `response.id`. Set `OPENAI_STORE=false` to disable storing. When you write JSON output, runs include an `openai_response_ids` mapping (e.g., `classifier`, `summarizer`, `manager_agent`) for quick correlation.
+
 To manually override categorization/routing (for review workflows), pass an override category path. This forces prompt routing based on your chosen category:
 
 ```
-python -m news_coverage.cli path/to/article.json --override-category "M&A -> General News & Strategy"
+python -m news_coverage.cli --override-category "M&A -> General News & Strategy" path/to/article.json
 ```
 
 If you want to re-run and store a new ingest record even when the URL was already processed for that company/quarter, add `--allow-duplicate-ingest`.
@@ -31,8 +33,8 @@ If you want to re-run and store a new ingest record even when the URL was alread
 The CLI defaults to the manager agent path (OpenAI Agents SDK). Keep the legacy direct pipeline with `--mode direct`. Examples:
 
 ```
-python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json --mode agent
-python -m news_coverage.cli data/samples/debug/variety_mandy_moore_teach_me.json --mode direct
+python -m news_coverage.cli --mode agent data/samples/debug/variety_mandy_moore_teach_me.json
+python -m news_coverage.cli --mode direct data/samples/debug/variety_mandy_moore_teach_me.json
 ```
 
 Both modes require `OPENAI_API_KEY` unless you inject your own classifier/summarizer. The agent path always needs the key because it builds the manager model.
@@ -98,7 +100,7 @@ curl -X POST http://localhost:8000/process/article ^
   -d "{\"title\":\"Example\",\"source\":\"Variety\",\"url\":\"https://example.com\",\"content\":\"Full text of the article...\",\"published_at\":\"2025-12-01\"}"
 ```
 
-Returns Markdown plus where it was stored; requires `OPENAI_API_KEY` on the server because it calls the manager agent.
+Returns Markdown plus where it was stored (and includes `openai_response_ids` for correlation); requires `OPENAI_API_KEY` on the server because it calls the manager agent.
 
 Reviewer UI (click-select category overrides without editing JSON):
 
@@ -125,6 +127,7 @@ Environment knobs:
 - `CORS_ALLOW_ALL` (default true) or `CORS_ALLOW_ORIGINS` (comma-separated) to constrain extension access.
 - `CORS_ALLOW_CREDENTIALS` (default true, but forced false when origins are `*` to avoid the wildcard+credentials startup error).
 - `AGENT_TRACE_PATH` to append a plain-text trace log for manager-agent runs (tool calls + outputs + final markdown + raw article content).
+- `OPENAI_STORE` (default true) to control whether OpenAI stores Responses for later retrieval by `response.id`.
 - `FACT_BUYER_GUARDRAIL_MODE` to filter out cross-section facts that don't mention any in-scope buyers (`section` default; `strict` or `off`).
 - `BUYERS_OF_INTEREST` (comma-separated) to define which buyer names are considered in-scope for the fact guardrail (default: all configured buyers). Legacy doc names like `Comcast` and `Warner Bros Discovery` are accepted and map to `Comcast/NBCU` and `WBD`.
 - `OPENAI_AGENTS_DISABLE_TRACING` disables OpenAI Agents SDK trace export (default: `true` in this repo to avoid non-fatal 503 retry spam). Set `OPENAI_AGENTS_DISABLE_TRACING=false` to re-enable.
@@ -146,6 +149,8 @@ Load in Chrome:
 2) Click "Load unpacked" and choose `extensions/chrome-intake/dist/`.
 3) Right-click any page, frame, or link and choose "Capture article for ingest." On first use for a new site (or an embedded article hosted in a different origin), Chrome will prompt for that specific origin; grant permission to scrape. Link targets are opened in a background tab, scraped, and closed automatically; if the background tab hangs or Chrome cannot inject into a frame, the popup shows a capture error instead of failing silently.
 4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed; the "Send" button is a manual retry.
+   - When using the pipeline endpoint (`/process/articles`), the popup also shows `openai_response_ids` when the server returns them, so you can correlate the run with OpenAI logs by `response.id`.
+   - The popup and options page include quick links to open the configured endpoint, the server reviewer (`/review`), server health (`/health`), and OpenAI Responses logs.
 
 Configure endpoint:
 - In the options page, set the endpoint URL (default `http://localhost:8000/process/articles`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload. When using `/process/articles`, the extension sends a single-item array for the selected article (it does not batch previously captured items).
@@ -173,7 +178,7 @@ If a page does not expose a publish date, the service worker sends the scrape da
 - Reuse the three sample Variety articles in `data/samples/debug/` when you need a quick, repeatable input. Each file now contains the full article body text from Dec. 5, 2025 Variety stories so runs mirror real ingest conditions. Each file is a single JSON object so it works directly with the CLI. Example:
 
 ```
-python -m news_coverage.cli data/samples/debug/variety_wga_netflix_warner_merger.json --out scratch.md
+python -m news_coverage.cli --out scratch.md data/samples/debug/variety_wga_netflix_warner_merger.json
 ```
 
 - The set covers the Netflix-Warner Bros. merger story, an A24/Peacock series announcement, and a column on what a Netflix-owned Warner Bros. would mean for theaters.
@@ -228,6 +233,7 @@ hyperlink when it lacks a date parenthetical.
 - `src/prompts/`: prompt templates used by the summarizer/classifier
 - `tests/`: smoke tests that mock network calls
 - `.agent/`: ExecPlans and design guidance
+- `.codex/`: repo-local Codex CLI skills (see below)
 - `src/AGENTS.md`: component-specific gotchas for the Python code
 - `src/news_coverage/schema.py`: loader/validator for the coverage JSON schema used by ingest.
 - `src/news_coverage/server.py`: FastAPI ingest service exposing `/health` and `/ingest/article` for the Chrome extension.
@@ -247,6 +253,22 @@ Review `AGENTS.md` before making changes. Key points:
 - Run `pytest` and `flake8` after code changes.
 - Update component `AGENTS.md` files when behavior changes.
 - Use ExecPlans for complex work per `.agent/PLANS.md`; place them under `.agent/in_progress/` while active and `.agent/complete/` when finished.
+
+### Codex CLI skills (repo-local)
+
+This repo vendors Codex CLI skills under `.codex/skills/`. To use them in this repo, set `CODEX_HOME` to `.codex` before launching Codex:
+
+PowerShell:
+
+```
+$env:CODEX_HOME = (Resolve-Path .\.codex)
+```
+
+Bash/Zsh:
+
+```
+export CODEX_HOME="$(pwd)/.codex"
+```
 
 Current ExecPlans
 - Active: `.agent/in_progress/execplan-chrome-extension.md` (extension + ingest design), `.agent/in_progress/execplan-multi-fact-classification-storage.md` (store multiple labeled facts per article), and `.agent/in_progress/execplan-parallel-agent-runs.md` (parallel batch processing).
