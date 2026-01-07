@@ -15,7 +15,7 @@
 - Collect response IDs via an in-process collector (not by scraping the OpenAI dashboard).
 
 ## State:
-- Done: Codex skills are vendored into the repo under `.codex/skills/` and documented in `README.md`.
+- Done: Codex skills are vendored into the repo under `.codex/skills/` and documented in `README.md`; changes are committed.
 
 ## Done:
 - Added `PipelineResult.openai_response_ids` and collection in `src/news_coverage/workflow.py`.
@@ -29,12 +29,13 @@
 - Rebuilt extension `dist/` and verified `pytest`/`flake8` remain green.
 - Added repo-local Codex skills under `.codex/skills/` and documented `CODEX_HOME` usage in `README.md`.
 - Updated `.flake8` to exclude `.codex/` from linting; `pytest`/`flake8` are green.
+- Committed skills vendoring (`af8b456`) and response-id + extension navigation work (`40fd087`).
 
 ## Now:
 - Nothing pending.
 
 ## Next:
-- Stage + commit the `.codex/` vendoring changes (keeping `C:\Users\KBAsst\.codex\skills\` intact).
+- Optional: `git push` when ready.
 
 ## Open questions (UNCONFIRMED if needed):
 - Resolved: keep the user-level copies under `C:\Users\KBAsst\.codex\skills\`.
