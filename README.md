@@ -127,7 +127,7 @@ Environment knobs:
 - `AGENT_TRACE_PATH` to append a plain-text trace log for manager-agent runs (tool calls + outputs + final markdown + raw article content).
 - `FACT_BUYER_GUARDRAIL_MODE` to filter out cross-section facts that don't mention any in-scope buyers (`section` default; `strict` or `off`).
 - `BUYERS_OF_INTEREST` (comma-separated) to define which buyer names are considered in-scope for the fact guardrail (default: all configured buyers). Legacy doc names like `Comcast` and `Warner Bros Discovery` are accepted and map to `Comcast/NBCU` and `WBD`.
-- `OPENAI_AGENTS_DISABLE_TRACING=true` to silence non-fatal Agents SDK tracing export retries (e.g., 503 warnings).
+- `OPENAI_AGENTS_DISABLE_TRACING` disables OpenAI Agents SDK trace export (default: `true` in this repo to avoid non-fatal 503 retry spam). Set `OPENAI_AGENTS_DISABLE_TRACING=false` to re-enable.
 
 ### Chrome extension scaffold (MV3)
 

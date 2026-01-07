@@ -1,37 +1,37 @@
 # CONTINUITY.md
 
 ## Goal (incl. success criteria):
-- Fix Chrome intake extension so sending from Feedly only ingests the user-selected article (no previously-captured/previously-processed articles are resent).
+- Disable OpenAI Agents SDK tracing export by default so local runs don’t spam `[non-fatal] Tracing: server error 503` retries.
 
 ## Constraints/Assumptions:
 - Environment: Windows PowerShell; approval_policy=never; sandbox_mode=danger-full-access; network_access=enabled.
 - Run `pytest` and `flake8` from repo root for code changes.
 - Treat captured article text as potentially copyrighted; avoid adding large real-article fixtures.
+- Do not print secrets; `.env` contains an OpenAI key.
 
 ## Key decisions:
-- “Send” and auto-send operate on the selected/latest article only (no flushing previously queued items).
+- Agents SDK trace export is disabled by default at package import; users can re-enable by setting `OPENAI_AGENTS_DISABLE_TRACING=false` before running.
 
 ## State:
-- Fix implemented; docs updated; Python tests/lint passing.
+- Implemented and verified: tests/lint green.
 
 ## Done:
-- Updated Chrome intake extension to only send selected/latest article.
+- Set `OPENAI_AGENTS_DISABLE_TRACING=true` by default inside `src/news_coverage/__init__.py`.
 - Updated `README.md` and `CHANGELOG.md`.
-- Rebuilt extension `dist/` via `npm run build`.
-- Ran `pytest` and `flake8` (both green).
+- Ran `pytest` and `flake8` (green).
 
 ## Now:
-- Ready for manual verification in Chrome with the unpacked extension.
+- Restart server/CLI and confirm 503 tracing spam is gone.
 
 ## Next:
-- Manually verify: capture a Feedly link and confirm only that article posts to the backend.
+- (Optional) Add a dedicated CLI flag to toggle tracing on/off per run.
 
 ## Open questions (UNCONFIRMED if needed):
-- None.
+- UNCONFIRMED: Are article POSTs actually reaching the server? (Prior logs showed only `OPTIONS /process/articles` preflights, no `POST` yet.)
 
 ## Working set (files/ids/commands):
-- `extensions/chrome-intake/`
-- `src/news_coverage/server.py`
-- `extensions/chrome-intake/src/background.ts`
+- `src/news_coverage/__init__.py`
 - `README.md`
 - `CHANGELOG.md`
+- `pytest`
+- `flake8`
