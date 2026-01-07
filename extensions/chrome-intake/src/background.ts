@@ -129,48 +129,30 @@ async function sendSingle(endpoint: string, body: Record<string, unknown>): Prom
 }
 
 async function enqueueArticle(article: StoredArticle) {
-  const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
-  const pending = [...stored.pendingArticles, article];
-  await chrome.storage.local.set({ latestArticle: article, pendingArticles: pending });
-  return pending;
+  // Keep a single "selected" pending article aligned with what the popup shows.
+  // This prevents previously captured items from being resent when the user
+  // captures/sends a different article.
+  await chrome.storage.local.set({ latestArticle: article, pendingArticles: [article] });
 }
 
 async function updatePendingArticles(pending: StoredArticle[]) {
   await chrome.storage.local.set({ pendingArticles: pending });
 }
 
-async function sendSequential(
-  endpoint: string,
-  pending: StoredArticle[],
-  buildPayload: (article: StoredArticle) => Record<string, unknown>
-): Promise<SendResult> {
-  let processed = 0;
-  const failed: StoredArticle[] = [];
-
-  for (const article of pending) {
-    const result = await sendSingle(endpoint, buildPayload(article));
-    if (result.status === "error") {
-      failed.push(article);
-      continue;
-    }
-    processed += 1;
-  }
-
-  await updatePendingArticles(failed);
-  if (failed.length) {
-    return {
-      status: "error",
-      error: `Processed ${processed}, failed ${failed.length}.`,
-    };
-  }
-  return { status: "ok" };
+function isSameStoredArticle(a: StoredArticle, b: StoredArticle): boolean {
+  return a.url === b.url && a.scrapedAt === b.scrapedAt;
 }
 
-async function sendProcessBatch(
-  endpoint: string,
-  pending: StoredArticle[]
-): Promise<SendResult> {
-  const body = pending.map((article) => buildProcessPayload(article));
+async function clearPendingIfSame(article: StoredArticle) {
+  const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
+  const pending = Array.isArray(stored.pendingArticles) ? stored.pendingArticles : [];
+  if (pending.length && isSameStoredArticle(pending[0], article)) {
+    await updatePendingArticles([]);
+  }
+}
+
+async function sendProcessBatchSingle(endpoint: string, article: StoredArticle): Promise<SendResult> {
+  const body = [buildProcessPayload(article)];
   try {
     const resp = await fetch(endpoint, {
       method: "POST",
@@ -190,58 +172,66 @@ async function sendProcessBatch(
     }
 
     const results = Array.isArray(parsed?.results) ? parsed.results : [];
-    const failed: StoredArticle[] = [];
-    let processed = 0;
-    let invalid = 0;
-
-    for (const item of results) {
-      const idx = Number(item?.index);
-      if (!Number.isFinite(idx) || idx < 0 || idx >= pending.length) {
-        continue;
-      }
-      const status = item?.status;
-      if (status === "processed" || status === "duplicate") {
-        processed += 1;
-      } else if (status === "invalid") {
-        invalid += 1;
-      } else {
-        failed.push(pending[idx]);
-      }
-    }
-
-    // If the server did not return per-item results, keep the queue intact.
     if (!results.length) {
       return { status: "error", error: "Batch response missing per-article results." };
     }
 
-    await updatePendingArticles(failed);
-    if (failed.length || invalid) {
-      return {
-        status: "error",
-        error: `Processed ${processed}, failed ${failed.length}, invalid ${invalid}.`,
-      };
+    const item = results.find((r: any) => Number(r?.index) === 0) ?? results[0];
+    const status = item?.status;
+    if (status === "processed" || status === "duplicate") {
+      const duplicate_of = typeof item?.duplicate_of === "string" ? item.duplicate_of : undefined;
+      if (duplicate_of) {
+        return { status: "duplicate", duplicate_of };
+      }
+      return { status: "ok" };
     }
-    return { status: "ok" };
+    if (status === "invalid") {
+      return { status: "error", error: item?.error || "Article payload was invalid." };
+    }
+    return { status: "error", error: item?.error || "Batch processing failed." };
   } catch (err: any) {
     return { status: "error", error: err?.message || String(err) };
   }
 }
 
-async function sendPendingArticles(): Promise<SendResult> {
+async function sendArticleOnce(article: StoredArticle): Promise<SendResult> {
   const endpoint = await getEndpoint();
-  const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
-  const pending = stored.pendingArticles as StoredArticle[];
-  if (!pending.length) {
-    return { status: "error", error: "No articles queued yet." };
-  }
-
   if (endpoint.includes("/ingest/")) {
-    return sendSequential(endpoint, pending, buildIngestPayload);
+    return sendSingle(endpoint, buildIngestPayload(article));
   }
   if (endpoint.includes("/process/articles")) {
-    return sendProcessBatch(endpoint, pending);
+    return sendProcessBatchSingle(endpoint, article);
   }
-  return sendSequential(endpoint, pending, buildProcessPayload);
+  return sendSingle(endpoint, buildProcessPayload(article));
+}
+
+async function sendPendingLoop() {
+  while (true) {
+    const stored = await chrome.storage.local.get({ pendingArticles: [] as StoredArticle[] });
+    const pending = Array.isArray(stored.pendingArticles) ? stored.pendingArticles : [];
+    const article = pending[0];
+    if (!article) return;
+
+    const result = await sendArticleOnce(article);
+    await recordSendResult(result);
+    if (result.status === "error") return;
+
+    // Only clear if nothing newer replaced the pending slot while we were sending.
+    await clearPendingIfSame(article);
+  }
+}
+
+async function sendLatestOnce(): Promise<SendResult> {
+  const stored = await chrome.storage.local.get({ latestArticle: null as StoredArticle | null });
+  if (!stored.latestArticle) {
+    return { status: "error", error: "No article scraped yet." };
+  }
+  const result = await sendArticleOnce(stored.latestArticle);
+  await recordSendResult(result);
+  if (result.status !== "error") {
+    await clearPendingIfSame(stored.latestArticle);
+  }
+  return result;
 }
 
 async function recordSendResult(result: SendResult) {
@@ -401,7 +391,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ...message.payload,
       scrapedAt: new Date().toISOString(),
     };
-    enqueueArticle(article);
+    void (async () => {
+      await enqueueArticle(article);
+      if (sending) return;
+      sending = true;
+      try {
+        await sendPendingLoop();
+      } finally {
+        sending = false;
+      }
+    })();
 
     // Close background capture tabs immediately on success.
     const tabId = sender?.tab?.id;
@@ -412,15 +411,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.tabs.remove(tabId).catch(() => undefined);
     }
     sendResponse({ status: "stored" });
-    // Fire-and-forget auto-send to pipeline/ingest.
-    if (!sending) {
-      sending = true;
-      sendPendingArticles()
-        .then(recordSendResult)
-        .finally(() => {
-          sending = false;
-        });
-    }
     return true;
   }
 
@@ -436,16 +426,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "SEND_TO_INGEST") {
-    chrome.storage.local.get("pendingArticles").then(async (data) => {
-      const pending = Array.isArray(data.pendingArticles) ? data.pendingArticles : [];
-      if (!pending.length) {
-        sendResponse({ status: "error", error: "No article scraped yet." });
-        return;
+    if (sending) {
+      sendResponse({ status: "error", error: "Send already in progress." });
+      return true;
+    }
+    sending = true;
+    void (async () => {
+      try {
+        const result = await sendLatestOnce();
+        sendResponse(result);
+      } finally {
+        sending = false;
       }
-      const result = await sendPendingArticles();
-      await recordSendResult(result);
-      sendResponse(result);
-    });
+    })();
     return true;
   }
 

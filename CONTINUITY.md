@@ -1,32 +1,37 @@
 # CONTINUITY.md
 
 ## Goal (incl. success criteria):
-- Stage and commit the current working tree changes after verifying quality checks (`pytest`, `flake8`) are green.
+- Fix Chrome intake extension so sending from Feedly only ingests the user-selected article (no previously-captured/previously-processed articles are resent).
 
 ## Constraints/Assumptions:
 - Environment: Windows PowerShell; approval_policy=never; sandbox_mode=danger-full-access; network_access=enabled.
-- Follow AGENTS.md rules for communication; run `pytest` and `flake8` from repo root before committing code changes.
+- Run `pytest` and `flake8` from repo root for code changes.
+- Treat captured article text as potentially copyrighted; avoid adding large real-article fixtures.
 
 ## Key decisions:
-- In strict mode, when all facts are filtered and no in-scope fallback can be produced, raise `ValueError` (fail fast) rather than emitting an out-of-scope fallback fact.
+- “Send” and auto-send operate on the selected/latest article only (no flushing previously queued items).
 
 ## State:
-- Commit created on `main`; working tree expected clean.
+- Fix implemented; docs updated; Python tests/lint passing.
 
 ## Done:
-- Updated ledger for commit workflow.
-- Ran `pytest` (77 passed) and `flake8` (clean).
-- Staged all changes and committed.
+- Updated Chrome intake extension to only send selected/latest article.
+- Updated `README.md` and `CHANGELOG.md`.
+- Rebuilt extension `dist/` via `npm run build`.
+- Ran `pytest` and `flake8` (both green).
 
 ## Now:
-- Verify `git status` is clean.
+- Ready for manual verification in Chrome with the unpacked extension.
 
 ## Next:
-- Push the commit if desired.
+- Manually verify: capture a Feedly link and confirm only that article posts to the backend.
 
 ## Open questions (UNCONFIRMED if needed):
 - None.
 
 ## Working set (files/ids/commands):
-- Commit: `4c78b72`
-- Commands: `pytest`, `flake8`, `git add -A`, `git commit`, `git status`
+- `extensions/chrome-intake/`
+- `src/news_coverage/server.py`
+- `extensions/chrome-intake/src/background.ts`
+- `README.md`
+- `CHANGELOG.md`

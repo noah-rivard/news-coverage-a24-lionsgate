@@ -148,12 +148,12 @@ Load in Chrome:
 4) After capture, the extension now auto-sends the article to the configured endpoint. Opening the popup shows whether it was processed; the "Send" button is a manual retry.
 
 Configure endpoint:
-- In the options page, set the endpoint URL (default `http://localhost:8000/process/articles`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload. When using `/process/articles`, the extension batches any queued captures into one request.
+- In the options page, set the endpoint URL (default `http://localhost:8000/process/articles`). If you point it to `/ingest/article`, the extension sends the coverage-schema payload instead of the full pipeline payload. When using `/process/articles`, the extension sends a single-item array for the selected article (it does not batch previously captured items).
   - Note: the ingest payload now includes a required `facts` array (min 1). The server still accepts legacy `section/subheading` payloads and will synthesize one fact for backward compatibility.
 
 Note: The build emits `dist/` with bundled `background.js`, `contentScript.js`, `popup.js`, and static `manifest.json`, `popup.html`, `options.html`. Install-time host permissions are limited to Feedly; other sites are requested at click time. The manifest requests `storage`, `activeTab`, `tabs`, `scripting`, and `contextMenus`; `tabs` is required so link captures can open and close a background tab.
 
-Payload format for the default pipeline endpoint: one JSON object (not a list) with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date so the pipeline can infer the quarter. Example:
+Payload format for the pipeline endpoints: `/process/article` accepts one JSON object with `title`, `source`, `url`, `content`, and optional `published_at` date (`YYYY-MM-DD`). `/process/articles` accepts a JSON array of the same objects (the extension sends a single-item array). The content script trims common datetime meta tags (e.g., `article:published_time`) down to just the date so the pipeline can infer the quarter. Example article object:
 
 ```
 {

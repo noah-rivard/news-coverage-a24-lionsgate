@@ -47,7 +47,7 @@ All notable changes to this project will be documented in this file. This projec
 ### Changed
 - ExecPlan housekeeping: moved auto-process endpoint, Feedly minimal-permission capture flow, and slate-routing ExecPlans to `.agent/complete/`; README now lists active vs. completed plans.
 - ExecPlan housekeeping: archived `execplan-batch-process-endpoint.md` to `.agent/complete/` after adding the batch processing endpoint.
-- Chrome intake extension now defaults to `/process/articles` and batches queued captures when using the batch endpoint; single-article endpoints still work via sequential sends.
+- Chrome intake extension now defaults to `/process/articles` and posts the selected article as a single-item array when using the batch endpoint; single-article endpoints still work via single-article sends.
 - ExecPlan housekeeping: archived `execplan-summarizer-retry.md` to `.agent/complete/` and updated README pointers.
 - Chrome intake extension now requests only Feedly hosts at install; other origins are requested at click time. Content script is no longer auto-injected and link captures run in a background tab with a 20s timeout.
 - Popup surfaces capture failures (e.g., permission denied) and guides users to right-click capture when no article is cached.
@@ -89,6 +89,7 @@ All notable changes to this project will be documented in this file. This projec
 - Chrome intake capture now requests iframe origins and reports injection failures, restoring right-click scraping of embedded cross-origin articles.
 - Chrome intake link-capture now reports background-tab timeouts (and uses a longer timeout), avoiding silent no-op runs when a site takes too long to load.
 - Chrome intake manifest now requests the `tabs` permission so background link captures can open/close tabs instead of failing silently.
+- Chrome intake send behavior now posts only the selected (latest) article instead of flushing previously queued captures when you capture/send from Feedly.
 - Final-output log now renders every bullet in each fact’s `summary_bullets` (adding date links when missing) instead of only `content_line`, so multi-title facts aren’t truncated.
 - Final-output log now formats each fact’s Content as a bullet list (instead of repeating `Content:` lines), preventing downstream parsers from dropping bullets when a fact contains multiple lines.
 - Markdown formatter now renders every bullet in each fact’s `summary_bullets` and only adds the date link when missing, preventing multi-title facts from collapsing and avoiding duplicate date parentheses.

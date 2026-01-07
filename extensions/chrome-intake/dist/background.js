@@ -103,36 +103,23 @@
     }
   }
   async function enqueueArticle(article) {
-    const stored = await chrome.storage.local.get({ pendingArticles: [] });
-    const pending = [...stored.pendingArticles, article];
-    await chrome.storage.local.set({ latestArticle: article, pendingArticles: pending });
-    return pending;
+    await chrome.storage.local.set({ latestArticle: article, pendingArticles: [article] });
   }
   async function updatePendingArticles(pending) {
     await chrome.storage.local.set({ pendingArticles: pending });
   }
-  async function sendSequential(endpoint, pending, buildPayload) {
-    let processed = 0;
-    const failed = [];
-    for (const article of pending) {
-      const result = await sendSingle(endpoint, buildPayload(article));
-      if (result.status === "error") {
-        failed.push(article);
-        continue;
-      }
-      processed += 1;
-    }
-    await updatePendingArticles(failed);
-    if (failed.length) {
-      return {
-        status: "error",
-        error: `Processed ${processed}, failed ${failed.length}.`
-      };
-    }
-    return { status: "ok" };
+  function isSameStoredArticle(a, b) {
+    return a.url === b.url && a.scrapedAt === b.scrapedAt;
   }
-  async function sendProcessBatch(endpoint, pending) {
-    const body = pending.map((article) => buildProcessPayload(article));
+  async function clearPendingIfSame(article) {
+    const stored = await chrome.storage.local.get({ pendingArticles: [] });
+    const pending = Array.isArray(stored.pendingArticles) ? stored.pendingArticles : [];
+    if (pending.length && isSameStoredArticle(pending[0], article)) {
+      await updatePendingArticles([]);
+    }
+  }
+  async function sendProcessBatchSingle(endpoint, article) {
+    const body = [buildProcessPayload(article)];
     try {
       const resp = await fetch(endpoint, {
         method: "POST",
@@ -150,52 +137,59 @@
         return { status: "error", error: detail };
       }
       const results = Array.isArray(parsed?.results) ? parsed.results : [];
-      const failed = [];
-      let processed = 0;
-      let invalid = 0;
-      for (const item of results) {
-        const idx = Number(item?.index);
-        if (!Number.isFinite(idx) || idx < 0 || idx >= pending.length) {
-          continue;
-        }
-        const status = item?.status;
-        if (status === "processed" || status === "duplicate") {
-          processed += 1;
-        } else if (status === "invalid") {
-          invalid += 1;
-        } else {
-          failed.push(pending[idx]);
-        }
-      }
       if (!results.length) {
         return { status: "error", error: "Batch response missing per-article results." };
       }
-      await updatePendingArticles(failed);
-      if (failed.length || invalid) {
-        return {
-          status: "error",
-          error: `Processed ${processed}, failed ${failed.length}, invalid ${invalid}.`
-        };
+      const item = results.find((r) => Number(r?.index) === 0) ?? results[0];
+      const status = item?.status;
+      if (status === "processed" || status === "duplicate") {
+        const duplicate_of = typeof item?.duplicate_of === "string" ? item.duplicate_of : void 0;
+        if (duplicate_of) {
+          return { status: "duplicate", duplicate_of };
+        }
+        return { status: "ok" };
       }
-      return { status: "ok" };
+      if (status === "invalid") {
+        return { status: "error", error: item?.error || "Article payload was invalid." };
+      }
+      return { status: "error", error: item?.error || "Batch processing failed." };
     } catch (err) {
       return { status: "error", error: err?.message || String(err) };
     }
   }
-  async function sendPendingArticles() {
+  async function sendArticleOnce(article) {
     const endpoint = await getEndpoint();
-    const stored = await chrome.storage.local.get({ pendingArticles: [] });
-    const pending = stored.pendingArticles;
-    if (!pending.length) {
-      return { status: "error", error: "No articles queued yet." };
-    }
     if (endpoint.includes("/ingest/")) {
-      return sendSequential(endpoint, pending, buildIngestPayload);
+      return sendSingle(endpoint, buildIngestPayload(article));
     }
     if (endpoint.includes("/process/articles")) {
-      return sendProcessBatch(endpoint, pending);
+      return sendProcessBatchSingle(endpoint, article);
     }
-    return sendSequential(endpoint, pending, buildProcessPayload);
+    return sendSingle(endpoint, buildProcessPayload(article));
+  }
+  async function sendPendingLoop() {
+    while (true) {
+      const stored = await chrome.storage.local.get({ pendingArticles: [] });
+      const pending = Array.isArray(stored.pendingArticles) ? stored.pendingArticles : [];
+      const article = pending[0];
+      if (!article) return;
+      const result = await sendArticleOnce(article);
+      await recordSendResult(result);
+      if (result.status === "error") return;
+      await clearPendingIfSame(article);
+    }
+  }
+  async function sendLatestOnce() {
+    const stored = await chrome.storage.local.get({ latestArticle: null });
+    if (!stored.latestArticle) {
+      return { status: "error", error: "No article scraped yet." };
+    }
+    const result = await sendArticleOnce(stored.latestArticle);
+    await recordSendResult(result);
+    if (result.status !== "error") {
+      await clearPendingIfSame(stored.latestArticle);
+    }
+    return result;
   }
   async function recordSendResult(result) {
     await chrome.storage.local.set({ lastSendStatus: result });
@@ -325,7 +319,16 @@
         ...message.payload,
         scrapedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
-      enqueueArticle(article);
+      void (async () => {
+        await enqueueArticle(article);
+        if (sending) return;
+        sending = true;
+        try {
+          await sendPendingLoop();
+        } finally {
+          sending = false;
+        }
+      })();
       const tabId = sender?.tab?.id;
       if (typeof tabId === "number" && pendingBackgroundTabs.has(tabId)) {
         const timeoutId = pendingBackgroundTabs.get(tabId);
@@ -334,12 +337,6 @@
         chrome.tabs.remove(tabId).catch(() => void 0);
       }
       sendResponse({ status: "stored" });
-      if (!sending) {
-        sending = true;
-        sendPendingArticles().then(recordSendResult).finally(() => {
-          sending = false;
-        });
-      }
       return true;
     }
     if (message?.type === "GET_LATEST_ARTICLE") {
@@ -353,16 +350,19 @@
       return true;
     }
     if (message?.type === "SEND_TO_INGEST") {
-      chrome.storage.local.get("pendingArticles").then(async (data) => {
-        const pending = Array.isArray(data.pendingArticles) ? data.pendingArticles : [];
-        if (!pending.length) {
-          sendResponse({ status: "error", error: "No article scraped yet." });
-          return;
+      if (sending) {
+        sendResponse({ status: "error", error: "Send already in progress." });
+        return true;
+      }
+      sending = true;
+      void (async () => {
+        try {
+          const result = await sendLatestOnce();
+          sendResponse(result);
+        } finally {
+          sending = false;
         }
-        const result = await sendPendingArticles();
-        await recordSendResult(result);
-        sendResponse(result);
-      });
+      })();
       return true;
     }
     return void 0;
